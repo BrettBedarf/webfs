@@ -15,6 +15,8 @@ from llfuse import EntryAttributes
 import cachetools
 import asyncio
 import aiohttp
+import functools
+from datetime import datetime
 
 # This should not block execution
 # debugpy.listen(("0.0.0.0", 5678))
@@ -45,34 +47,61 @@ MAX_PREFETCH_AHEAD = 100 * 1024 * 1024  # e.g., 100MB ahead
 # How many chunks to fetch concurrently each batch.
 PREFETCH_BATCH_SIZE = 8
 
-# Setup debug logging.
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s"
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+file_handler = logging.FileHandler(
+    f"logs/httpfs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 )
+file_handler.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+console_handler.setFormatter(formatter)
+file_handler.setFormatter(formatter)
+
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
+
+
+# Decorator to log elapsed time for each function/method.
+def log_time(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start
+        logger.debug(f"{func.__name__} took {elapsed:.4f} seconds")
+        return result
+
+    return wrapper
+
 
 file_attributes_cache = {}
 
 
+@log_time
 def get_file_attr(filename: str) -> EntryAttributes:
-    logging.debug("Getting file attributes for '%s'", filename)
+    logger.debug("Getting file attributes for '%s'", filename)
     if filename in file_attributes_cache:
-        logging.debug("Returning cached file attributes for '%s'", filename)
+        logger.debug("Returning cached file attributes for '%s'", filename)
         return file_attributes_cache[filename]
     attr = EntryAttributes()
     with FILES_LOCK:
         inode = INODE_MAP.get(filename)
         url = source_files.get(filename)
     if inode is None or url is None:
-        logging.error("File not found: '%s'", filename)
+        logger.error("File not found: '%s'", filename)
         raise FileNotFoundError
 
     try:
-        logging.info("Fetching HEAD from remote")
+        logger.info("Fetching HEAD from remote")
         r = requests.head(url, allow_redirects=True)
         size = int(r.headers.get("Content-Length", 0))
-        logging.debug("Size of '%s': %d bytes", filename, size)
+        logger.debug("Size of '%s': %d bytes", filename, size)
     except Exception as e:
-        logging.error("Error fetching HEAD for '%s': %s", filename, e)
+        logger.error("Error fetching HEAD for '%s': %s", filename, e)
         size = 0
 
     now_ns = int(time.time() * 1e9)
@@ -91,8 +120,9 @@ def get_file_attr(filename: str) -> EntryAttributes:
     return attr
 
 
+@log_time
 def get_root_attr() -> EntryAttributes:
-    logging.debug("Getting root attributes")
+    logger.debug("Getting root attributes")
     attr = EntryAttributes()
     attr.st_ino = llfuse.ROOT_INODE
     attr.st_mode = stat.S_IFDIR | 0o755
@@ -126,6 +156,7 @@ session_lock = threading.Lock()
 IDLE_TIMEOUT = 300  # seconds
 
 
+@log_time
 def get_session_for_url(url):
     now = time.time()
     with session_lock:
@@ -139,6 +170,7 @@ def get_session_for_url(url):
             return s
 
 
+@log_time
 def cleanup_sessions():
     while True:
         time.sleep(60)  # check every minute
@@ -161,6 +193,7 @@ redirect_cache = {}
 redirect_cache_lock = threading.Lock()
 
 
+@log_time
 def resolve_redirect(url):
     with redirect_cache_lock:
         if url in redirect_cache:
@@ -173,6 +206,7 @@ def resolve_redirect(url):
     return final_url
 
 
+@log_time
 def maybe_prefetch(url, current_read_offset):
     # Determine how far we've cached for this URL.
     with cache_lock:
@@ -190,13 +224,24 @@ def maybe_prefetch(url, current_read_offset):
 
 async def fetch_chunk(session, url, offset, chunk_size):
     headers = {"Range": f"bytes={offset}-{offset + chunk_size - 1}"}
+    start = time.perf_counter()
     async with session.get(url, headers=headers) as response:
         if response.status in (200, 206):
-            return await response.read()
+            ret = await response.read()
+            end = time.perf_counter() - start
+            logger.debug(
+                f"fetch_chunk: offset={offset}, chunk_size={chunk_size}, elapsed={end:.4f} seconds"
+            )
+            return ret
         else:
+            end = time.perf_counter() - start
+            logger.debug(
+                f"fetch_chunk FAIL: offset={offset}, chunk_size={chunk_size}, elapsed={end:.4f} seconds"
+            )
             raise Exception(f"HTTP error {response.status}")
 
 
+@log_time
 # Async function to fetch multiple chunks concurrently.
 async def fetch_chunks_async(url, offsets, chunk_size):
     async with aiohttp.ClientSession() as session:
@@ -204,11 +249,24 @@ async def fetch_chunks_async(url, offsets, chunk_size):
         return await asyncio.gather(*tasks)
 
 
+@log_time
 # Synchronous wrapper around the async function.
 def fetch_chunks_sync(url, offsets, chunk_size):
-    return asyncio.run(fetch_chunks_async(url, offsets, chunk_size))
+    result = asyncio.run(fetch_chunks_async(url, offsets, chunk_size))
+    # Log the total bytes stored in the file_chunk_cache
+    with cache_lock:
+        total_bytes = sum(len(chunk) for chunk in file_chunk_cache.values())
+    cache_mb = total_bytes / (1024 * 1024)
+    with prefetch_lock:
+        active_prefetch = len(prefetch_threads)
+    logging.debug(
+        f"fetch_chunks_sync: current file_chunk_cache size: {cache_mb:.2f} MB; active prefetch threads: {active_prefetch}"
+    )
+
+    return result
 
 
+@log_time
 def get_file_chunk(file_url, chunk_start, chunk_size):
     cache_key = (file_url, chunk_start)
     with cache_lock:
@@ -238,6 +296,7 @@ def get_file_chunk(file_url, chunk_start, chunk_size):
         return chunk
 
 
+@log_time
 def prefetch(url, start_offset, chunk_size, max_prefetch_bytes):
     """
     Prefetch multiple chunks at once until we fill up max_prefetch_bytes.
@@ -277,13 +336,14 @@ def prefetch(url, start_offset, chunk_size, max_prefetch_bytes):
 
 
 class HTTPFS(llfuse.Operations):
+    @log_time
     def lookup(self, parent_inode, name, ctx):
         if parent_inode != llfuse.ROOT_INODE:
-            logging.error("lookup: non-root parent inode %d", parent_inode)
+            logger.error("lookup: non-root parent inode %d", parent_inode)
             raise llfuse.FUSEError(errno.ENOENT)
         filename = name.decode("utf-8") if isinstance(name, bytes) else name
         # if filename[0] != ".":
-        #     logging.debug("lookup: parent_inode=%d, name=%s", parent_inode, name)
+        #     logger.debug("lookup: parent_inode=%d, name=%s", parent_inode, name)
         with FILES_LOCK:
             if filename not in source_files:
                 logging.error("lookup: '%s' not found", filename)
@@ -294,31 +354,34 @@ class HTTPFS(llfuse.Operations):
                 inode = NEXT_INODE
                 INODE_MAP[filename] = inode
                 NEXT_INODE += 1
-                logging.debug("lookup: assigned new inode %d to '%s'", inode, filename)
+                logger.debug("lookup: assigned new inode %d to '%s'", inode, filename)
         return get_file_attr(filename)
 
+    @log_time
     def getattr(self, inode, ctx):
-        logging.debug("getattr: inode=%d", inode)
+        logger.debug("getattr: inode=%d", inode)
         if inode == llfuse.ROOT_INODE:
             return get_root_attr()
         with FILES_LOCK:
             filename = next((fn for fn, ino in INODE_MAP.items() if ino == inode), None)
         if filename is None:
-            logging.error("getattr: inode %d not found", inode)
+            logger.error("getattr: inode %d not found", inode)
             raise llfuse.FUSEError(errno.ENOENT)
         return get_file_attr(filename)
 
+    @log_time
     def opendir(self, inode, ctx):
-        logging.debug("opendir: inode=%d", inode)
+        logger.debug("opendir: inode=%d", inode)
         if inode != llfuse.ROOT_INODE:
-            logging.error("opendir: inode %d is not root", inode)
+            logger.error("opendir: inode %d is not root", inode)
             raise llfuse.FUSEError(errno.ENOTDIR)
         return inode
 
+    @log_time
     def readdir(self, fh, off):
-        logging.debug("readdir: fh=%d, off=%d", fh, off)
+        logger.debug("readdir: fh=%d, off=%d", fh, off)
         if fh != llfuse.ROOT_INODE:
-            logging.error("readdir: file handle %d is not root", fh)
+            logger.error("readdir: file handle %d is not root", fh)
             return
 
         entries = [(b".", get_root_attr()), (b"..", get_root_attr())]
@@ -327,20 +390,21 @@ class HTTPFS(llfuse.Operations):
                 try:
                     attr = get_file_attr(filename)
                     entries.append((filename.encode("utf-8"), attr))
-                    logging.debug("readdir: adding entry '%s'", filename)
+                    logger.debug("readdir: adding entry '%s'", filename)
                 except FileNotFoundError:
-                    logging.error("readdir: file '%s' not found", filename)
+                    logger.error("readdir: file '%s' not found", filename)
                     continue
         for i, (name, attr) in enumerate(entries):
             if i < off:
                 continue
-            logging.debug("readdir: yielding '%s' at offset %d", name, i + 1)
+            logger.debug("readdir: yielding '%s' at offset %d", name, i + 1)
             yield (name, attr, i + 1)
 
+    @log_time
     def open(self, inode, flags, ctx):
-        logging.debug("open: inode=%d, flags=%d", inode, flags)
+        logger.debug("open: inode=%d, flags=%d", inode, flags)
         if flags & (os.O_WRONLY | os.O_RDWR):
-            logging.error("open: write access denied for inode=%d", inode)
+            logger.error("open: write access denied for inode=%d", inode)
             raise llfuse.FUSEError(errno.EACCES)
         with FILES_LOCK:
             filename = next((fn for fn, ino in INODE_MAP.items() if ino == inode), None)
@@ -367,8 +431,9 @@ class HTTPFS(llfuse.Operations):
                             t.start()
         return inode
 
+    @log_time
     def read(self, fh, off, size):
-        logging.debug("read: fh=%d, off=%d, size=%d", fh, off, size)
+        logger.debug("read: fh=%d, off=%d, size=%d", fh, off, size)
         with FILES_LOCK:
             filename = next((fn for fn, ino in INODE_MAP.items() if ino == fh), None)
             if filename is None:
@@ -376,10 +441,12 @@ class HTTPFS(llfuse.Operations):
             url = source_files.get(filename)
         if not url:
             raise llfuse.FUSEError(errno.ENOENT)
-
+        # attr = get_file_attr(filename)
+        # total_size = attr.st_size
         # Determine chunk boundaries covering the requested range.
         start_offset = off - (off % DEFAULT_CHUNK_SIZE)
-        end_offset = off + size  # Offsets at which each chunk starts
+        end_offset = off + size
+        # Offsets at which each chunk starts
         offsets = list(range(start_offset, end_offset, DEFAULT_CHUNK_SIZE))
         # If range() is empty, force at least one offset
         if not offsets:
@@ -404,7 +471,7 @@ class HTTPFS(llfuse.Operations):
         # Trigger prefetch for data beyond what was just read.
         maybe_prefetch(url, off + size)
 
-        logging.debug("read: returning %d bytes", len(result))
+        logger.debug("read: returning %d bytes", len(result))
         return result
 
 
@@ -412,12 +479,12 @@ def listen_for_updates(port=9000):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("localhost", port))
     sock.listen(5)
-    logging.info("Update server listening on port %d", port)
+    logger.info("Update server listening on port %d", port)
     while True:
         conn, _ = sock.accept()
-        logging.debug("Update server: connection accepted")
+        logger.debug("Update server: connection accepted")
         data = conn.recv(1024).decode("utf-8")
-        logging.debug("Update server: received data: %s", data)
+        logger.debug("Update server: received data: %s", data)
         try:
             update = json.loads(data)
             filename = update.get("filename")
@@ -429,26 +496,26 @@ def listen_for_updates(port=9000):
                         global NEXT_INODE
                         INODE_MAP[filename] = NEXT_INODE
                         NEXT_INODE += 1
-                logging.info("Added mapping: '%s' -> '%s'", filename, url)
+                logger.info("Added mapping: '%s' -> '%s'", filename, url)
                 conn.send(b"OK")
             else:
-                logging.error("Update server: invalid data received")
+                logger.error("Update server: invalid data received")
                 conn.send(b"ERROR: Invalid data")
         except Exception as e:
-            logging.exception("Update server: error processing update")
+            logger.exception("Update server: error processing update")
             conn.send(f"ERROR: {str(e)}".encode("utf-8"))
         conn.close()
-        logging.debug("Update server: connection closed")
+        logger.debug("Update server: connection closed")
 
 
 def main(mountpoint):
     fs = HTTPFS()
     llfuse.init(fs, mountpoint, ["fsname=httpls", "ro"])
-    logging.info("FUSE filesystem mounted on '%s'", mountpoint)
+    logger.info("FUSE filesystem mounted on '%s'", mountpoint)
     try:
         llfuse.main()
     finally:
-        logging.info("Unmounting filesystem")
+        logger.info("Unmounting filesystem")
         llfuse.close()
 
 
@@ -469,7 +536,7 @@ if __name__ == "__main__":
 
     # Allow clean exit with Ctrl+C.
     def sigint_handler(signum, frame):
-        logging.info("SIGINT received, exiting...")
+        logger.info("SIGINT received, exiting...")
         llfuse.close()
         sys.exit(0)
 
