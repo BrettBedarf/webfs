@@ -3,24 +3,26 @@ import errno
 import json
 import logging
 import os
-import signal
 import socket
 import stat
 import sys
 import threading
 import time
-import llfuse
+import pyfuse3
+from pyfuse3 import EntryAttributes, RequestContext, FileHandleT, FileNameT, Operations
+import trio
 import requests
-from llfuse import EntryAttributes
 import cachetools
 import asyncio
 import aiohttp
 import functools
 from datetime import datetime
+from typing import cast
+import debugpy
 
 # This should not block execution
-# debugpy.listen(("0.0.0.0", 5678))
-# print("Debugpy is listening on port 5678; wait_for_client")
+debugpy.listen(("0.0.0.0", 5678))
+print("Debugpy is listening on port 5678; wait_for_client")
 # debugpy.wait_for_client()
 
 source_json = json.load(open("tests/fixtures/pub_sources.json"))
@@ -36,8 +38,13 @@ for source_file in source_json["categories"][0]["videos"]:
     source_files[filename] = source_url
 
 FILES_LOCK = threading.Lock()
+# TODO: INODE_MAP should be a mapping of inode -> file
 INODE_MAP = {}  # filename -> inode
 NEXT_INODE = 2  # starting inode (root is 1)
+
+MAX_FH = (
+    2**31 - 1
+)  # 32-bits ensures compat with libfuse and more than enough open handles
 
 # Read cache configuration
 DEFAULT_CHUNK_SIZE = 2 * 1024 * 1024  # 4MB per chunk
@@ -87,10 +94,9 @@ def get_file_attr(filename: str) -> EntryAttributes:
     if filename in file_attributes_cache:
         logger.debug("Returning cached file attributes for '%s'", filename)
         return file_attributes_cache[filename]
-    attr = EntryAttributes()
-    with FILES_LOCK:
-        inode = INODE_MAP.get(filename)
-        url = source_files.get(filename)
+
+    inode = INODE_MAP.get(filename)
+    url = source_files.get(filename)
     if inode is None or url is None:
         logger.error("File not found: '%s'", filename)
         raise FileNotFoundError
@@ -105,8 +111,10 @@ def get_file_attr(filename: str) -> EntryAttributes:
         size = 0
 
     now_ns = int(time.time() * 1e9)
+    attr = pyfuse3.EntryAttributes()
     attr.st_ino = inode
-    attr.st_mode = stat.S_IFREG | 0o444
+    # Use cast(...) to satisfy the type checker for st_mode.
+    attr.st_mode = cast(pyfuse3.ModeT, stat.S_IFREG | 0o444)
     attr.st_size = size
     attr.st_uid = os.getuid()
     attr.st_gid = os.getgid()
@@ -114,22 +122,22 @@ def get_file_attr(filename: str) -> EntryAttributes:
     attr.st_mtime_ns = now_ns
     attr.st_ctime_ns = now_ns
     attr.st_nlink = 1
-    # cache so we don't keep firing http requests every read
-    file_attributes_cache[filename] = attr
 
+    file_attributes_cache[filename] = attr
     return attr
 
 
 @log_time
 def get_root_attr() -> EntryAttributes:
     logger.debug("Getting root attributes")
-    attr = EntryAttributes()
-    attr.st_ino = llfuse.ROOT_INODE
-    attr.st_mode = stat.S_IFDIR | 0o755
-    attr.st_size = 0
+    now_ns = int(time.time() * 1e9)
+    attr = pyfuse3.EntryAttributes()
+    attr.st_ino = pyfuse3.ROOT_INODE
+    # Mark directory mode with 755 perms
+    attr.st_mode = cast(pyfuse3.ModeT, stat.S_IFDIR | 0o755)
     attr.st_uid = os.getuid()
     attr.st_gid = os.getgid()
-    now_ns = int(time.time() * 1e9)
+    attr.st_size = 0
     attr.st_atime_ns = now_ns
     attr.st_mtime_ns = now_ns
     attr.st_ctime_ns = now_ns
@@ -344,19 +352,36 @@ def prefetch(url, start_offset, chunk_size, max_prefetch_bytes, total_size):
         prefetch_threads.pop(url, None)
 
 
-class HTTPFS(llfuse.Operations):
-    @log_time
-    def lookup(self, parent_inode, name, ctx):
-        if parent_inode != llfuse.ROOT_INODE:
+_next_fh = 1
+_fh_lock = threading.Lock()
+# Mapping: file handle -> metadata dictionary (e.g. inode and allocation timestamp)
+open_handles = {}
+
+
+def get_next_fh(inode):
+    global _next_fh
+    with _fh_lock:
+        candidate = _next_fh
+        _next_fh = (_next_fh + 1) % MAX_FH
+        while candidate in open_handles:
+            candidate = _next_fh
+            _next_fh = (_next_fh + 1) % MAX_FH
+        open_handles[candidate] = {"inode": inode, "allocated_at": time.time()}
+        return FileHandleT(candidate)
+
+
+class HTTPFS(Operations):
+    async def lookup(self, parent_inode, name, ctx):
+        if parent_inode != pyfuse3.ROOT_INODE:
             logger.error("lookup: non-root parent inode %d", parent_inode)
-            raise llfuse.FUSEError(errno.ENOENT)
+            raise pyfuse3.FUSEError(errno.ENOENT)
         filename = name.decode("utf-8") if isinstance(name, bytes) else name
         # if filename[0] != ".":
         #     logger.debug("lookup: parent_inode=%d, name=%s", parent_inode, name)
         with FILES_LOCK:
             if filename not in source_files:
                 logging.error("lookup: '%s' not found", filename)
-                raise llfuse.FUSEError(errno.ENOENT)
+                raise pyfuse3.FUSEError(errno.ENOENT)
             inode = INODE_MAP.get(filename)
             if inode is None:
                 global NEXT_INODE
@@ -366,91 +391,87 @@ class HTTPFS(llfuse.Operations):
                 logger.debug("lookup: assigned new inode %d to '%s'", inode, filename)
         return get_file_attr(filename)
 
-    @log_time
-    def getattr(self, inode, ctx):
+    async def getattr(self, inode, ctx):
         logger.debug("getattr: inode=%d", inode)
-        if inode == llfuse.ROOT_INODE:
+        if inode == pyfuse3.ROOT_INODE:
             return get_root_attr()
         with FILES_LOCK:
             filename = next((fn for fn, ino in INODE_MAP.items() if ino == inode), None)
         if filename is None:
             logger.error("getattr: inode %d not found", inode)
-            raise llfuse.FUSEError(errno.ENOENT)
+            raise pyfuse3.FUSEError(errno.ENOENT)
         return get_file_attr(filename)
 
-    @log_time
-    def opendir(self, inode, ctx):
+    async def opendir(self, inode: int, ctx: RequestContext) -> FileHandleT:
         logger.debug("opendir: inode=%d", inode)
-        if inode != llfuse.ROOT_INODE:
+        if inode != pyfuse3.ROOT_INODE:
             logger.error("opendir: inode %d is not root", inode)
-            raise llfuse.FUSEError(errno.ENOTDIR)
-        return inode
+            raise pyfuse3.FUSEError(errno.ENOTDIR)
+        fh = get_next_fh(inode)
+        return fh
 
-    @log_time
-    def readdir(self, fh, off):
-        logger.debug("readdir: fh=%d, off=%d", fh, off)
-        if fh != llfuse.ROOT_INODE:
-            logger.error("readdir: file handle %d is not root", fh)
-            return
+    async def readdir(
+        self, fh: FileHandleT, start_id: int, token: pyfuse3.ReaddirToken
+    ) -> None:
+        logger.debug("readdir: fh=%d, start_id=%d", fh, start_id)
+        # if fh != pyfuse3.ROOT_INODE:
+        #     logger.error("readdir: file handle %d is not root", fh)
+        #     return
 
-        entries = [(b".", get_root_attr()), (b"..", get_root_attr())]
+        # Build directory entry list including '.' and '..'
+        entries = [
+            (FileNameT(b"."), get_root_attr()),
+            (FileNameT(b".."), get_root_attr()),
+        ]
         with FILES_LOCK:
             for filename in source_files.keys():
                 try:
                     attr = get_file_attr(filename)
-                    entries.append((filename.encode("utf-8"), attr))
+                    entries.append((FileNameT(filename.encode("utf-8")), attr))
                     logger.debug("readdir: adding entry '%s'", filename)
                 except FileNotFoundError:
                     logger.error("readdir: file '%s' not found", filename)
                     continue
-        for i, (name, attr) in enumerate(entries):
-            if i < off:
-                continue
-            logger.debug("readdir: yielding '%s' at offset %d", name, i + 1)
-            yield (name, attr, i + 1)
 
-    @log_time
-    def open(self, inode, flags, ctx):
+        # Use the pyfuse3.readdir_reply method to add each entry.
+        for idx, (name, attr) in enumerate(entries):
+            if idx < start_id:
+                continue
+            next_id = idx + 1
+            if not pyfuse3.readdir_reply(token, name, attr, next_id):
+                break
+
+    async def open(
+        self, inode: int, flags: int, ctx: RequestContext
+    ) -> pyfuse3.FileInfo:
         logger.debug("open: inode=%d, flags=%d", inode, flags)
         if flags & (os.O_WRONLY | os.O_RDWR):
             logger.error("open: write access denied for inode=%d", inode)
-            raise llfuse.FUSEError(errno.EACCES)
-        with FILES_LOCK:
-            filename = next((fn for fn, ino in INODE_MAP.items() if ino == inode), None)
-            url = FILES.get(filename) if filename else None
-        if filename and url:
-            cache_key = (url, 0)
-            with cache_lock:
-                # Only start prefetch if the first chunk isn't already cached or fetching
-                if cache_key not in file_chunk_cache:
-                    with prefetch_lock:
-                        if url not in prefetch_threads:
-                            total_size = get_file_attr(filename).st_size
-                            t = threading.Thread(
-                                target=prefetch,
-                                args=(
-                                    url,
-                                    0,
-                                    DEFAULT_CHUNK_SIZE,
-                                    min(CACHE_MAX_SIZE, total_size, 2 * 1024 * 1024),
-                                    total_size,
-                                ),
-                                daemon=True,
-                            )
-                            prefetch_threads[url] = t
-                            t.start()
-        return inode
+            raise pyfuse3.FUSEError(errno.EACCES)
 
-    @log_time
-    def read(self, fh, off, size):
+        fi = pyfuse3.FileInfo(
+            fh=get_next_fh(inode),
+            direct_io=True,  # take over responsibilty for caching, buffering, etc from kernel
+        )
+
+        return fi
+
+    async def read(self, fh: FileHandleT, off: int, size: int) -> bytes:
         logger.debug("read: fh=%d, off=%d, size=%d", fh, off, size)
+        with _fh_lock:
+            handle_details = open_handles.get(fh)
+            ino = handle_details.get("inode") if handle_details else None
+            if not ino:
+                logger.error(f"no inode found for handle {fh}")
+                raise pyfuse3.FUSEError(errno.ENOENT)
         with FILES_LOCK:
-            filename = next((fn for fn, ino in INODE_MAP.items() if ino == fh), None)
+            # TODO: refactor INODE_MAP to be inode -> filename
+            filename = next((fn for fn, _ino in INODE_MAP.items() if _ino == fh), None)
             if filename is None:
-                raise llfuse.FUSEError(errno.ENOENT)
+                raise pyfuse3.FUSEError(errno.ENOENT)
             url = source_files.get(filename)
         if not url:
-            raise llfuse.FUSEError(errno.ENOENT)
+            raise pyfuse3.FUSEError(errno.ENOENT)
         attr = get_file_attr(filename)
         total_size = attr.st_size
         # Determine chunk boundaries covering the requested range.
@@ -518,15 +539,15 @@ def listen_for_updates(port=9000):
         logger.debug("Update server: connection closed")
 
 
-def main(mountpoint):
+async def main(mountpoint):
     fs = HTTPFS()
-    fuse_opts = set(llfuse.default_options)
+    fuse_opts = set(pyfuse3.default_options)
     # fuse_opts.add(
     #     "allow_other"
     # )  # Allow all users (not just the mounter) to access the FS.
     fuse_opts.add("ro")  # Mount as read-only.
     fuse_opts.add("fsname=httpls")  # Set a custom filesystem name ("httpls").
-    fuse_opts.add("max_read=65536")  # Limit each read request to 64KB.
+    # fuse_opts.add("max_read=65536")  # Limit each read request to 64KB.
     fuse_opts.add(
         "auto_unmount"
     )  # Automatically unmount the FS if the process terminates.
@@ -534,13 +555,13 @@ def main(mountpoint):
         "nodiratime"
     )  # Do not update directory access times (reduces overhead).
 
-    llfuse.init(fs, mountpoint, fuse_opts)
+    pyfuse3.init(fs, mountpoint, fuse_opts)
     logger.info("FUSE filesystem mounted on '%s'", mountpoint)
     try:
-        llfuse.main()
+        await pyfuse3.main()
     finally:
         logger.info("Unmounting filesystem")
-        llfuse.close()
+        pyfuse3.close()
 
 
 if __name__ == "__main__":
@@ -561,9 +582,9 @@ if __name__ == "__main__":
     # Allow clean exit with Ctrl+C.
     def sigint_handler(signum, frame):
         logger.info("SIGINT received, exiting...")
-        llfuse.close()
+        pyfuse3.close()
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, sigint_handler)
+    # signal.signal(signal.SIGINT, sigint_handler)
 
-    main(mountpoint)
+    trio.run(main, mountpoint)
