@@ -45,7 +45,7 @@ CACHE_MAX_SIZE = 200 * 1024 * 1024  # 100MB total
 NUM_CACHE_CHUNKS = CACHE_MAX_SIZE // DEFAULT_CHUNK_SIZE
 MAX_PREFETCH_AHEAD = 100 * 1024 * 1024  # e.g., 100MB ahead
 # How many chunks to fetch concurrently each batch.
-PREFETCH_BATCH_SIZE = 8
+PREFETCH_BATCH_SIZE = 6
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -207,7 +207,7 @@ def resolve_redirect(url):
 
 
 @log_time
-def maybe_prefetch(url, current_read_offset):
+def maybe_prefetch(url, current_read_offset, total_size):
     # Determine how far we've cached for this URL.
     with cache_lock:
         cached_offsets = [off for (u, off) in file_chunk_cache if u == url]
@@ -217,7 +217,13 @@ def maybe_prefetch(url, current_read_offset):
         # Spawn a thread to prefetch continuously from the current highest offset up to the target.
         threading.Thread(
             target=prefetch,
-            args=(url, highest_cached, DEFAULT_CHUNK_SIZE, target - highest_cached),
+            args=(
+                url,
+                highest_cached,
+                DEFAULT_CHUNK_SIZE,
+                target - highest_cached,
+                total_size,
+            ),
             daemon=True,
         ).start()
 
@@ -250,10 +256,14 @@ async def fetch_chunks_async(url, offsets, chunk_size):
 
 
 @log_time
-# Synchronous wrapper around the async function.
-def fetch_chunks_sync(url, offsets, chunk_size):
-    result = asyncio.run(fetch_chunks_async(url, offsets, chunk_size))
-    # Log the total bytes stored in the file_chunk_cache
+# Synchronous wrapper around the async function for fuse compat
+def fetch_chunks_sync(url, offsets, chunk_size, total_size):
+    # Only fetch offsets less than the file's total size.
+    valid_offsets = [offset for offset in offsets if offset < total_size]
+    if not valid_offsets:
+        return []
+    result = asyncio.run(fetch_chunks_async(url, valid_offsets, chunk_size))
+    # Log the current cache size in MB and active prefetch threads.
     with cache_lock:
         total_bytes = sum(len(chunk) for chunk in file_chunk_cache.values())
     cache_mb = total_bytes / (1024 * 1024)
@@ -262,12 +272,11 @@ def fetch_chunks_sync(url, offsets, chunk_size):
     logging.debug(
         f"fetch_chunks_sync: current file_chunk_cache size: {cache_mb:.2f} MB; active prefetch threads: {active_prefetch}"
     )
-
     return result
 
 
 @log_time
-def get_file_chunk(file_url, chunk_start, chunk_size):
+def get_file_chunk(file_url, chunk_start, chunk_size, total_size):
     cache_key = (file_url, chunk_start)
     with cache_lock:
         if cache_key in file_chunk_cache:
@@ -287,7 +296,7 @@ def get_file_chunk(file_url, chunk_start, chunk_size):
         with cache_lock:
             return file_chunk_cache.get(cache_key, b"")
     else:
-        chunk = fetch_chunks_sync(file_url, chunk_start, chunk_size)
+        chunk = fetch_chunks_sync(file_url, chunk_start, chunk_size, total_size)
         with cache_lock:
             file_chunk_cache[cache_key] = chunk
         with ongoing_lock:
@@ -297,7 +306,7 @@ def get_file_chunk(file_url, chunk_start, chunk_size):
 
 
 @log_time
-def prefetch(url, start_offset, chunk_size, max_prefetch_bytes):
+def prefetch(url, start_offset, chunk_size, max_prefetch_bytes, total_size):
     """
     Prefetch multiple chunks at once until we fill up max_prefetch_bytes.
     """
@@ -324,7 +333,7 @@ def prefetch(url, start_offset, chunk_size, max_prefetch_bytes):
             break
 
         # Now fetch them in one async batch
-        chunks = fetch_chunks_sync(url, offsets_to_fetch, chunk_size)
+        chunks = fetch_chunks_sync(url, offsets_to_fetch, chunk_size, total_size)
         # Store them in the cache
         with cache_lock:
             for i, offset in enumerate(offsets_to_fetch):
@@ -416,14 +425,15 @@ class HTTPFS(llfuse.Operations):
                 if cache_key not in file_chunk_cache:
                     with prefetch_lock:
                         if url not in prefetch_threads:
-                            file_size = get_file_attr(filename).st_size
+                            total_size = get_file_attr(filename).st_size
                             t = threading.Thread(
                                 target=prefetch,
                                 args=(
                                     url,
                                     0,
                                     DEFAULT_CHUNK_SIZE,
-                                    min(CACHE_MAX_SIZE, file_size, 10 * 1024 * 1024),
+                                    min(CACHE_MAX_SIZE, total_size, 2 * 1024 * 1024),
+                                    total_size,
                                 ),
                                 daemon=True,
                             )
@@ -441,8 +451,8 @@ class HTTPFS(llfuse.Operations):
             url = source_files.get(filename)
         if not url:
             raise llfuse.FUSEError(errno.ENOENT)
-        # attr = get_file_attr(filename)
-        # total_size = attr.st_size
+        attr = get_file_attr(filename)
+        total_size = attr.st_size
         # Determine chunk boundaries covering the requested range.
         start_offset = off - (off % DEFAULT_CHUNK_SIZE)
         end_offset = off + size
@@ -454,7 +464,7 @@ class HTTPFS(llfuse.Operations):
 
         # Fetch all needed chunks concurrently.
         # fetch_chunks_sync expects a list of offsets.
-        chunks = fetch_chunks_sync(url, offsets, DEFAULT_CHUNK_SIZE)
+        chunks = fetch_chunks_sync(url, offsets, DEFAULT_CHUNK_SIZE, total_size)
 
         # Assemble the requested data:
         data = bytearray()
@@ -469,7 +479,7 @@ class HTTPFS(llfuse.Operations):
         result = bytes(data[:size])
 
         # Trigger prefetch for data beyond what was just read.
-        maybe_prefetch(url, off + size)
+        maybe_prefetch(url, off + size, total_size)
 
         logger.debug("read: returning %d bytes", len(result))
         return result
@@ -510,7 +520,21 @@ def listen_for_updates(port=9000):
 
 def main(mountpoint):
     fs = HTTPFS()
-    llfuse.init(fs, mountpoint, ["fsname=httpls", "ro"])
+    fuse_opts = set(llfuse.default_options)
+    # fuse_opts.add(
+    #     "allow_other"
+    # )  # Allow all users (not just the mounter) to access the FS.
+    fuse_opts.add("ro")  # Mount as read-only.
+    fuse_opts.add("fsname=httpls")  # Set a custom filesystem name ("httpls").
+    fuse_opts.add("max_read=65536")  # Limit each read request to 64KB.
+    fuse_opts.add(
+        "auto_unmount"
+    )  # Automatically unmount the FS if the process terminates.
+    fuse_opts.add(
+        "nodiratime"
+    )  # Do not update directory access times (reduces overhead).
+
+    llfuse.init(fs, mountpoint, fuse_opts)
     logger.info("FUSE filesystem mounted on '%s'", mountpoint)
     try:
         llfuse.main()
