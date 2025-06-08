@@ -1,0 +1,134 @@
+{
+  "requests": [
+    {
+      "path": "BigBuckBunny.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+        }
+      ]
+    },
+    {
+      "path": "ElephantsDream.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+        }
+      ]
+    },
+    {
+      "path": "ForBiggerBlazes.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+        }
+      ]
+    },
+    {
+      "path": "ForBiggerEscapes.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
+        }
+      ]
+    },
+    {
+      "path": "ForBiggerFun.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
+        }
+      ]
+    },
+    {
+      "path": "ForBiggerJoyrides.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
+        }
+      ]
+    },
+    {
+      "path": "ForBiggerMeltdowns.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4"
+        }
+      ]
+    },
+    {
+      "path": "Sintel.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
+        }
+      ]
+    },
+    {
+      "path": "SubaruOutbackOnStreetAndDirt.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4"
+        }
+      ]
+    },
+    {
+      "path": "TearsOfSteel.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
+        }
+      ]
+    },
+    {
+      "path": "VolkswagenGTIReview.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4"
+        }
+      ]
+    },
+    {
+      "path": "WeAreGoingOnBullrun.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
+        }
+      ]
+    },
+    {
+      "path": "WhatCarCanYouGetForAGrand.mp4",
+      "type": "file",
+      "sources": [
+        {
+          "type": "http",
+          "location": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4"
+        }
+      ]
+    }
+  ]
+}
