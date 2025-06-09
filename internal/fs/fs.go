@@ -9,9 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/brettbedarf/httpfs/internal/nodes"
-	"github.com/brettbedarf/httpfs/util"
 	"github.com/brettbedarf/webfs"
+	"github.com/brettbedarf/webfs/config"
+	"github.com/brettbedarf/webfs/internal/nodes"
+	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
@@ -22,7 +23,7 @@ type WebFs struct {
 	inodeMapLock sync.RWMutex
 }
 
-func NewWebFs(mountPoint string, config *webfs.Config) *WebFs {
+func NewWebFs(mountPoint string, config *config.Config) *WebFs {
 	now := time.Now()
 	nowUnix := uint64(now.Unix())
 	nowNano := uint32(now.Nanosecond())
@@ -67,7 +68,7 @@ func NewWebFs(mountPoint string, config *webfs.Config) *WebFs {
 	return &tree
 }
 
-func (fs *WebFs) AddNodeFromDef(fileDef *nodes.FileSrcDef) *nodes.Node {
+func (fs *WebFs) AddNodeFromDef(fileDef *webfs.NodeRequestor) *nodes.Node {
 	logger := util.GetLogger("FileStore.AssignNode")
 	logger.Debug().Interface("fileDef", fileDef).Msg("Adding FSNode")
 	var inode *nodes.Inode

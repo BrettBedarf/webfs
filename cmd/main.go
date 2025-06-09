@@ -30,8 +30,8 @@ func main() {
 	//
 	//	// Create filesystem
 	//	fusefs := filesystem.NewFuseRaw(mountPoint, &MountOptions{
-	//		FsName: "httpfs",
-	//		Name:   "httpfs",
+	//		FsName: "webfs",
+	//		Name:   "webfs",
 	//		Debug:  *debug,
 	//		Logger: log.Default(),
 	//	}

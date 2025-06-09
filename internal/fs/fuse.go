@@ -16,12 +16,12 @@ func NewFuseRaw(mountPath string, fs *WebFs) *FuseRaw {
 }
 
 func (raw *FuseRaw) String() string {
-	return "httpfs"
+	return "webfs"
 }
 
 // Called when the kernel wants to know if the user has permission to access the node. See [libfuse docs].
 // [libfuse docs]: https://libgithub.io/doxygen/structfuse__operations.html#a4dd366b9f74ead6927fb75afb91863bc
-func (raw *FuseRaw) Access(cancel <-chan struct{}, input *AccessIn) Status {
+func (f *FuseRaw) Access(cancel <-chan struct{}, input *AccessIn) Status {
 	logger := util.GetLogger("Fuse.Access")
 	logger.Debug().
 		Interface("input", input).
@@ -33,11 +33,11 @@ func (raw *FuseRaw) Access(cancel <-chan struct{}, input *AccessIn) Status {
 	return OK
 }
 
-func Lookup(cancel <-chan struct{}, header *InHeader, name string, out *EntryOut) (status Status) {
+func (f *FuseRaw) Lookup(cancel <-chan struct{}, header *InHeader, name string, out *EntryOut) (status Status) {
 	return OK
 }
 
-//	func (fs *HttpFS) ReadDir(cancel <-chan struct{}, input *ReadIn, out *DirEntryList) Status {
+//	func (fr *FuseRaw) ReadDir(cancel <-chan struct{}, input *ReadIn, out *DirEntryList) Status {
 //		logger := util.GetLogger("readdir")
 //		logger.Debug().
 //			Uint64("fh", input.Fh).
