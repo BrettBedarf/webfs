@@ -1,4 +1,4 @@
-module github.com/brettbedarf/httpfs
+module github.com/brettbedarf/webfs
 
 go 1.24
 

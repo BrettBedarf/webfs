@@ -1,4 +1,4 @@
-package filesystem
+package fs
 
 import (
 	"os"
@@ -11,17 +11,18 @@ import (
 
 	"github.com/brettbedarf/httpfs/internal/nodes"
 	"github.com/brettbedarf/httpfs/util"
+	"github.com/brettbedarf/webfs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-type FsTree struct {
+type WebFs struct {
 	root         *nodes.Node             // Root of node tree
 	inodeMap     map[uint64]*nodes.Inode // Map of inode numbers to Inodes
 	nextIno      atomic.Uint64           // Next inode number to assign
 	inodeMapLock sync.RWMutex
 }
 
-func NewFsTree() *FsTree {
+func NewWebFs(mountPoint string, config *webfs.Config) *WebFs {
 	now := time.Now()
 	nowUnix := uint64(now.Unix())
 	nowNano := uint32(now.Nanosecond())
@@ -57,7 +58,7 @@ func NewFsTree() *FsTree {
 	inodeMap := make(map[uint64]*nodes.Inode)
 	inodeMap[rootAttr.Ino] = rootInode
 
-	tree := FsTree{
+	tree := WebFs{
 		root:     rootNode,
 		inodeMap: inodeMap,
 	}
@@ -66,7 +67,7 @@ func NewFsTree() *FsTree {
 	return &tree
 }
 
-func (fs *FsTree) AddNodeFromDef(fileDef *nodes.FileSrcDef) *nodes.Node {
+func (fs *WebFs) AddNodeFromDef(fileDef *nodes.FileSrcDef) *nodes.Node {
 	logger := util.GetLogger("FileStore.AssignNode")
 	logger.Debug().Interface("fileDef", fileDef).Msg("Adding FSNode")
 	var inode *nodes.Inode

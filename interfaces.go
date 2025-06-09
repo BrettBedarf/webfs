@@ -1,4 +1,4 @@
-package httpfs
+package webfs
 
 import (
 	"context"
