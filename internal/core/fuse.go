@@ -1,13 +1,13 @@
-package fs
+package core
 
 import (
 	"github.com/brettbedarf/webfs/util"
-	. "github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
 // FuseRaw implements the FUSE wire protocol
 type FuseRaw struct {
-	RawFileSystem
+	fuse.RawFileSystem
 	fs *WebFs
 }
 
@@ -15,13 +15,13 @@ func NewFuseRaw(mountPath string, fs *WebFs) *FuseRaw {
 	return nil
 }
 
-func (raw *FuseRaw) String() string {
+func (fr *FuseRaw) String() string {
 	return "webfs"
 }
 
 // Called when the kernel wants to know if the user has permission to access the node. See [libfuse docs].
 // [libfuse docs]: https://libgithub.io/doxygen/structfuse__operations.html#a4dd366b9f74ead6927fb75afb91863bc
-func (f *FuseRaw) Access(cancel <-chan struct{}, input *AccessIn) Status {
+func (fr *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Status {
 	logger := util.GetLogger("Fuse.Access")
 	logger.Debug().
 		Interface("input", input).
@@ -30,11 +30,11 @@ func (f *FuseRaw) Access(cancel <-chan struct{}, input *AccessIn) Status {
 	// TODO:handle access permissions properly
 	//
 	// For simplicity, we allow read access to all files
-	return OK
+	return fuse.OK
 }
 
-func (f *FuseRaw) Lookup(cancel <-chan struct{}, header *InHeader, name string, out *EntryOut) (status Status) {
-	return OK
+func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out fuse.EntryOut) (status fuse.Status) {
+	return fuse.OK
 }
 
 //	func (fr *FuseRaw) ReadDir(cancel <-chan struct{}, input *ReadIn, out *DirEntryList) Status {

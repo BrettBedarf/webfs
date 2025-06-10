@@ -1,20 +1,4 @@
-package fs
-
-import (
-	"os"
-	"path"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"syscall"
-	"time"
-
-	"github.com/brettbedarf/webfs"
-	"github.com/brettbedarf/webfs/config"
-	"github.com/brettbedarf/webfs/internal/nodes"
-	"github.com/brettbedarf/webfs/util"
-	"github.com/hanwen/go-fuse/v2/fuse"
-)
+package core
 
 type WebFs struct {
 	root         *nodes.Node             // Root of node tree
@@ -23,7 +7,7 @@ type WebFs struct {
 	inodeMapLock sync.RWMutex
 }
 
-func NewWebFs(mountPoint string, config *config.Config) *WebFs {
+func NewWebFs(config *config.Config) *WebFs {
 	now := time.Now()
 	nowUnix := uint64(now.Unix())
 	nowNano := uint32(now.Nanosecond())
@@ -48,7 +32,7 @@ func NewWebFs(mountPoint string, config *config.Config) *WebFs {
 		// Only non-zero for device files (see S_IFCHR and S_IFBLK) (N/A)
 		Rdev: 0,
 		// Used for byte-to-byte compat with fuse wire protocol
-		// but *should be handled by go-fuse or not relevant and just
+		// but *should* be handled by go-fuse or not relevant and just
 		// set/default to 0
 		Padding: 0,
 	}
@@ -67,36 +51,41 @@ func NewWebFs(mountPoint string, config *config.Config) *WebFs {
 
 	return &tree
 }
+// TODO: split into just AddFile and AddDir etc and make consumers split up
+// Still use Provider pattern for the sources/adapters though and whatever for
+// concrete source types or again make consumers pre-attach adapters (prob better)
+func (fs *WebFs) AddNode(req api.NodeRequestable) (*nodes.Node, error) {
+	logger := util.GetLogger("Fs.AssignNode")
+	logger.Debug().Interface("request", req).Msg("Adding FSNode")
 
-func (fs *WebFs) AddNodeFromDef(fileDef *webfs.NodeRequestor) *nodes.Node {
-	logger := util.GetLogger("FileStore.AssignNode")
-	logger.Debug().Interface("fileDef", fileDef).Msg("Adding FSNode")
-	var inode *nodes.Inode
-	var node *nodes.Node
-
-	// TODO: overwrite/suffix '_1'/err?
-	nodePath = strings.TrimSpace(nodePath)
-	nodePath = path.Clean(nodePath)
-	// dirPath paths should always end in "/" and the file split will be empty string
-	dirPath, file := path.Split(nodePath)
-
-	// trim any leading "/" so that we will always start at the first child of root
-	// we are assuming that everything is relative to root so
-	// "foo/bar" and "/foo/bar" are equivalent
-	dirPath = strings.TrimPrefix(dirPath, "/")
-	curNode := fs.root
-	for _, dir := range strings.Split(dirPath, "/") {
-		if child, exists := curNode.Children[dir]; exists {
-			curNode = child
-		} else {
-			// Create new directory child node
-		}
+	// Narrow down to node type
+	switch nodeType := req.(type) {
+	case api.FileCreateRequest:
+		foo := nodeType.
 	}
+	// // TODO: overwrite/suffix '_1'/err?
+	// nodePath = strings.TrimSpace(nodePath)
+	// nodePath = path.Clean(nodePath)
+	// // dirPath paths should always end in "/" and the file split will be empty string
+	// dirPath, file := path.Split(nodePath)
+	//
+	// // trim any leading "/" so that we will always start at the first child of root
+	// // we are assuming that everything is relative to root so
+	// // "foo/bar" and "/foo/bar" are equivalent
+	// dirPath = strings.TrimPrefix(dirPath, "/")
+	// curNode := fs.root
+	// for _, dir := range strings.Split(dirPath, "/") {
+	// 	if child, exists := curNode.Children[dir]; exists {
+	// 		curNode = child
+	// 	} else {
+	// 		// Create new directory child node
+	// 	}
+	// }
+	//
+	// ino := fs.nextIno
+	// fs.nextIno++
 
-	ino := fs.nextIno
-	fs.nextIno++
-
-	return *Node{}
+	return &nodes.Node{}, nil
 }
 
 // func (store *FileStore) GetFsNodeForPath(path string) *Node {
