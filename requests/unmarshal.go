@@ -55,17 +55,17 @@ func UnmarshalDirRequest(data []byte) (*fs.DirCreateRequest, error) {
 }
 
 // Helper function to process sources array
-func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]fs.SourceConfig, error) {
+func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]fs.FileSource, error) {
 	// Extract raw sources array from JSON for adapter registry
 	var rawMessage struct {
 		Sources []json.RawMessage `json:"sources"`
 	}
 	json.Unmarshal(rawData, &rawMessage)
 
-	var sources []fs.SourceConfig
+	var sources []fs.FileSource
 	for i, rawSource := range rawMessage.Sources {
 		// Use adapter registry to get provider
-		provider, err := adapters.GetFactory(rawSource)
+		provider, err := adapters.GetProvider(rawSource)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +76,7 @@ func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]fs.Source
 			priority = *sourceDTOs[i].Priority
 		}
 
-		sources = append(sources, fs.SourceConfig{
+		sources = append(sources, fs.FileSource{
 			AdapterProvider: provider,
 			Priority:        priority,
 		})

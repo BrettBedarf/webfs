@@ -21,8 +21,8 @@ const (
 	HTTPMethodDelete HTTPMethod = "DELETE"
 )
 
-// HTTPSourceConfig contains http-specific source request fields
-type HTTPSourceConfig struct {
+// HTTPSource contains http-specific source request fields
+type HTTPSource struct {
 	URL     string            `json:"url"`
 	Method  *HTTPMethod       `json:"method,omitempty"` // Default is GET
 	Headers map[string]string `json:"headers,omitempty"`
@@ -36,7 +36,7 @@ type HTTPSourceConfig struct {
 
 func RegisterHTTP() {
 	Register("http", func(raw []byte) (fs.AdapterProvider, error) {
-		var config HTTPSourceConfig
+		var config HTTPSource
 		if err := json.Unmarshal(raw, &config); err != nil {
 			return nil, err
 		}
@@ -44,13 +44,13 @@ func RegisterHTTP() {
 	})
 }
 
-func (h *HTTPSourceConfig) Adapter() fs.FileAdapter {
+func (h *HTTPSource) Adapter() fs.FileAdapter {
 	return &HTTPAdapter{config: h}
 }
 
 // HTTPAdapter implements [fs.FileAdapter]for HTTP sources
 type HTTPAdapter struct {
-	config *HTTPSourceConfig
+	config *HTTPSource
 }
 
 func (h *HTTPAdapter) newRequest(ctx context.Context, method HTTPMethod) (*http.Request, error) {

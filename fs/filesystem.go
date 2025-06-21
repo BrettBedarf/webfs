@@ -63,7 +63,7 @@ const (
 
 type FileCreateRequest struct {
 	NodeRequest
-	Sources []SourceConfig `json:"sources"`
+	Sources []FileSource `json:"sources"`
 }
 
 type DirCreateRequest struct {
@@ -75,9 +75,9 @@ type AdapterProvider interface {
 	Adapter() FileAdapter
 }
 
-// SourceConfig is a container for concrete adapter implementations that can be
+// FileSource is a container for concrete adapter implementations that can be
 // passed to the core filesystem
-type SourceConfig struct {
+type FileSource struct {
 	AdapterProvider
 	Priority int `json:"priority,omitempty"` // Lower number = higher priority
 }

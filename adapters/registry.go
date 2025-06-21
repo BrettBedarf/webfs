@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/brettbedarf/webfs/fs"
+	"github.com/brettbedarf/webfs/util"
 )
 
 var (
@@ -21,21 +22,25 @@ func Register(adapterType string, unmarshal func(raw []byte) (fs.AdapterProvider
 	mu.Unlock()
 }
 
-// GetFactory picks the right factory based on the "type" field.
+// GetProvider picks the right factory based on the "type" field.
 // All expected source adapter types should be registered with [Register]
 // before calling this function.
-func GetFactory(raw []byte) (fs.AdapterProvider, error) {
+func GetProvider(raw []byte) (fs.AdapterProvider, error) {
+	logger := util.GetLogger("adapters.GetFactory")
 	var meta struct {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(raw, &meta); err != nil {
+		logger.Error().Err(err)
 		return nil, err
 	}
 	mu.RLock()
 	f, ok := factories[meta.Type]
 	mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("no factory for %q", meta.Type)
+		err := fmt.Errorf("no factory for %q", meta.Type)
+		logger.Error().Err(err)
+		return nil, err
 	}
 	return f(raw)
 }
