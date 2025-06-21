@@ -10,21 +10,21 @@ import (
 	"github.com/brettbedarf/webfs/fs"
 )
 
-type HttpMethod = string
+type HTTPMethod = string
 
 const (
-	HttpMethodGet    HttpMethod = "GET"
-	HttpMethodHead   HttpMethod = "HEAD"
-	HttpMethodPost   HttpMethod = "POST"
-	HttpMethodPut    HttpMethod = "PUT"
-	HttpMethodPatch  HttpMethod = "PATCH"
-	HttpMethodDelete HttpMethod = "DELETE"
+	HTTPMethodGet    HTTPMethod = "GET"
+	HTTPMethodHead   HTTPMethod = "HEAD"
+	HTTPMethodPost   HTTPMethod = "POST"
+	HTTPMethodPut    HTTPMethod = "PUT"
+	HTTPMethodPatch  HTTPMethod = "PATCH"
+	HTTPMethodDelete HTTPMethod = "DELETE"
 )
 
-// HTTP-specific source request
-type HttpSourceConfig struct {
+// HTTPSourceConfig contains http-specific source request fields
+type HTTPSourceConfig struct {
 	URL     string            `json:"url"`
-	Method  *HttpMethod       `json:"method,omitempty"` // Default is GET
+	Method  *HTTPMethod       `json:"method,omitempty"` // Default is GET
 	Headers map[string]string `json:"headers,omitempty"`
 
 	// TODO: Timeout and MaxRedirects are client-specific so prob would want to
@@ -34,9 +34,9 @@ type HttpSourceConfig struct {
 	// MaxRedirects *int              `json:"maxRedirects,omitempty"`
 }
 
-func RegisterHttp() {
+func RegisterHTTP() {
 	Register("http", func(raw []byte) (fs.AdapterProvider, error) {
-		var config HttpSourceConfig
+		var config HTTPSourceConfig
 		if err := json.Unmarshal(raw, &config); err != nil {
 			return nil, err
 		}
@@ -44,16 +44,16 @@ func RegisterHttp() {
 	})
 }
 
-func (h *HttpSourceConfig) Adapter() fs.FileAdapter {
-	return &HttpAdapter{config: h}
+func (h *HTTPSourceConfig) Adapter() fs.FileAdapter {
+	return &HTTPAdapter{config: h}
 }
 
-// HttpAdapter implements [fs.FileAdapter]for HTTP sources
-type HttpAdapter struct {
-	config *HttpSourceConfig
+// HTTPAdapter implements [fs.FileAdapter]for HTTP sources
+type HTTPAdapter struct {
+	config *HTTPSourceConfig
 }
 
-func (h *HttpAdapter) newRequest(ctx context.Context, method HttpMethod) (*http.Request, error) {
+func (h *HTTPAdapter) newRequest(ctx context.Context, method HTTPMethod) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, h.config.URL, nil)
 	if err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (h *HttpAdapter) newRequest(ctx context.Context, method HttpMethod) (*http.
 	return req, nil
 }
 
-func (h *HttpAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
+func (h *HTTPAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
 	req, err := h.newRequest(ctx, h.getMethod())
 	if err != nil {
 		return nil, err
@@ -81,17 +81,17 @@ func (h *HttpAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-func (h *HttpAdapter) Read(ctx context.Context, offset int64, p []byte) (int, error) {
+func (h *HTTPAdapter) Read(ctx context.Context, offset int64, p []byte) (int, error) {
 	// TODO: Implement range request logic
 	return 0, fmt.Errorf("Read not implemented")
 }
 
-func (h *HttpAdapter) Write(ctx context.Context, offset int64, p []byte) (int, error) {
+func (h *HTTPAdapter) Write(ctx context.Context, offset int64, p []byte) (int, error) {
 	// HTTP sources are read-only to start
 	return 0, fmt.Errorf("HTTP sources are read-only")
 }
 
-func (h *HttpAdapter) Size(ctx context.Context) (int64, error) {
+func (h *HTTPAdapter) Size(ctx context.Context) (int64, error) {
 	req, err := h.newRequest(ctx, "HEAD")
 	if err != nil {
 		return 0, err
@@ -106,7 +106,7 @@ func (h *HttpAdapter) Size(ctx context.Context) (int64, error) {
 	return resp.ContentLength, nil
 }
 
-func (h *HttpAdapter) Exists(ctx context.Context) (bool, error) {
+func (h *HTTPAdapter) Exists(ctx context.Context) (bool, error) {
 	req, err := h.newRequest(ctx, "HEAD")
 	if err != nil {
 		return false, err
@@ -121,9 +121,9 @@ func (h *HttpAdapter) Exists(ctx context.Context) (bool, error) {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300, nil
 }
 
-func (h *HttpAdapter) getMethod() HttpMethod {
+func (h *HTTPAdapter) getMethod() HTTPMethod {
 	if h.config.Method != nil {
 		return *h.config.Method
 	}
-	return HttpMethodGet
+	return HTTPMethodGet
 }

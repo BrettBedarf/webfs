@@ -8,6 +8,7 @@ import (
 
 type Filesystem interface {
 	AddFileNode(req *FileCreateRequest) error
+	AddDirNode(req *DirCreateRequest) error
 }
 
 // FileAdapter defines the core operations for retrieving file data from various sources
@@ -28,9 +29,12 @@ type FileAdapter interface {
 
 	// Checks if the file exists
 	Exists(ctx context.Context) (bool, error)
+
+	// TODO: Close()/Cleanup()/Down() etc to handle cleanup if applicable
+	// so core fs can manage individual adapter instance lifecycles as resources
 }
 
-// NodeRequest are common fields embedded in concrete request types
+// NodeRequest has common fields embedded in concrete request types
 type NodeRequest struct {
 	Path     string
 	Type     NodeCreateRequestType
@@ -40,13 +44,13 @@ type NodeRequest struct {
 	Mtime    time.Time // Last Modified at
 	Ctime    time.Time // Created at (Default current time)
 	Perms    uint32    // i.e. 0755
-	OwnerUid uint32
-	OwnerGid uint32
+	OwnerUID uint32
+	OwnerGID uint32
 	// Blksize is the preferred size for file system operations.
 	Blksize uint32
 }
 
-// Valid types are FileNodeType, DirNodeType
+// NodeCreateRequestType valid types are FileNodeType "file", DirNodeType "dir"
 type NodeCreateRequestType string
 
 const (
@@ -66,16 +70,13 @@ type DirCreateRequest struct {
 	NodeRequest
 }
 
-// Implement NodeRequestor interface for DirCreateRequest
-func (r *DirCreateRequest) GetNodeRequest() *NodeRequest {
-	return &r.NodeRequest
-}
-
 // AdapterProvider wraps the concrete adapter generated from request's SourceConfig
 type AdapterProvider interface {
 	Adapter() FileAdapter
 }
 
+// SourceConfig is a container for concrete adapter implementations that can be
+// passed to the core filesystem
 type SourceConfig struct {
 	AdapterProvider
 	Priority int `json:"priority,omitempty"` // Lower number = higher priority

@@ -16,8 +16,8 @@ type NodeRequestDTO struct {
 	Mtime    *time.Time               `json:"mtime,omitempty"` // Last Modified at (Default current time)
 	Ctime    *time.Time               `json:"ctime,omitempty"` // Created at (Default current time)
 	Perms    *uint32                  `json:"perms,omitempty"` // i.e. 0755
-	OwnerUid *uint32                  `json:"owner_uid,omitempty"`
-	OwnerGid *uint32                  `json:"owner_gid,omitempty"`
+	OwnerUID *uint32                  `json:"owner_uid,omitempty"`
+	OwnerGID *uint32                  `json:"owner_gid,omitempty"`
 	// Blksize is the preferred size for file system operations.
 	Blksize *uint32 `json:"blksize,omitempty"`
 }
@@ -36,7 +36,7 @@ type DirRequestDTO struct {
 //
 // Additional fields depend on the "type" value:
 //
-// Ex. For type="http" (see [adapters.HttpSourceConfig]):
+// Ex. For type="http" (see [adapters.HTTPSourceConfig]):
 //
 //	URL          string            `json:"url"`
 //	Headers      map\[string\]string `json:"headers,omitempty"`

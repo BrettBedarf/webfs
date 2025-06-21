@@ -8,20 +8,21 @@ package adapters
 type BuiltInAdapterType = string
 
 const (
-	HttpAdapterType BuiltInAdapterType = "http"
+	HTTPAdapterType BuiltInAdapterType = "http"
 )
 
 // RegisterBuiltins registers all built-in adapters by default
 // or only the specific ones if keys are provided
 func RegisterBuiltins(adapters ...BuiltInAdapterType) {
 	if len(adapters) == 0 {
-		adapters = append(adapters, HttpAdapterType)
+		// Include all built-in adapters here when adding implementations
+		adapters = append(adapters, HTTPAdapterType)
 	}
 
 	for _, key := range adapters {
 		switch key {
-		case HttpAdapterType:
-			RegisterHttp()
+		case HTTPAdapterType:
+			RegisterHTTP()
 		}
 	}
 }
