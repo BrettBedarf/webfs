@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Bytes per MB
+// MB is bytes per megabyte
 const MB = 1024 * 1024
 
 // Default configuration constants. See [Config] for field descriptions.
@@ -43,10 +43,22 @@ const (
 
 	// DefaultDirectIO determines whether to bypass page cache for HTTP files
 	DefaultDirectIO = true
+
+	DefaultDebug  = false
+	DefaultFsName = "webfs"
+	DefaultName   = "webfs"
 )
+
+// MountOptions holds high-level settings for mounting.
+type MountOptions struct {
+	Debug  bool   // fuse debug logs
+	FsName string // mount's FsName
+	Name   string // mount's Name
+}
 
 // Config contains runtime configuration values for the HTTP filesystem.
 type Config struct {
+	MountOptions
 	ChunkSize         int // Size of each data chunk in bytes (affects memory usage and transfer efficiency) (Default 1MB)
 	CacheMaxSize      int // Maximum total cache size in bytes (Default 200MB)
 	MaxPrefetchAhead  int // Maximum bytes to prefetch ahead of current read position (Default 100MB)
@@ -81,11 +93,19 @@ type ConfigOverride struct {
 	AttrTimeout       *float64 `yaml:"attr_timeout,omitempty" json:"attr_timeout,omitempty"`
 	EntryTimeout      *float64 `yaml:"entry_timeout,omitempty" json:"entry_timeout,omitempty"`
 	DirectIO          *bool    `yaml:"direct_io,omitempty" json:"direct_io,omitempty"`
+	Debug             *bool    `yaml:"debug,omitempty" json:"debug,omitempty"`
+	FsName            *string  `yaml:"fs_name,omitempty" json:"fs_name,omitempty"`
+	Name              *string  `yaml:"name,omitempty" json:"name,omitempty"`
 }
 
 // NewDefaultConfig creates a new Config with all default values.
 func NewDefaultConfig() *Config {
 	return &Config{
+		MountOptions: MountOptions{
+			Debug:  DefaultDebug,
+			FsName: DefaultFsName,
+			Name:   DefaultName,
+		},
 		ChunkSize:         DefaultChunkSize,
 		CacheMaxSize:      DefaultCacheMaxSize,
 		MaxPrefetchAhead:  DefaultMaxPrefetchAhead,
@@ -127,6 +147,15 @@ func (c *Config) Merge(override *ConfigOverride) {
 	}
 	if override.DirectIO != nil {
 		c.DirectIO = *override.DirectIO
+	}
+	if override.Debug != nil {
+		c.Debug = *override.Debug
+	}
+	if override.FsName != nil {
+		c.FsName = *override.FsName
+	}
+	if override.Name != nil {
+		c.Name = *override.Name
 	}
 }
 

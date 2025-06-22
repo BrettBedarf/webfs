@@ -1,12 +1,15 @@
+// fs package contains core filesystem types
 package fs
 
+// NOTE: Shared package between public & internal and should avoid
+// importing other internal packages due to circular dependencies
 import (
 	"context"
 	"io"
 	"time"
 )
 
-type Filesystem interface {
+type FileSystemOperator interface {
 	AddFileNode(req *FileCreateRequest) error
 	AddDirNode(req *DirCreateRequest) error
 }

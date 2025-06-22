@@ -1,27 +1,29 @@
 package core
 
 import (
+	"github.com/brettbedarf/webfs/fs"
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-// FuseRaw implements the FUSE wire protocol
+// FuseRaw implements the low-level FUSE wire protocol
+// See https://www.man7.org/linux//man-pages/man4/fuse.4.html
 type FuseRaw struct {
 	fuse.RawFileSystem
-	fs *WebFs
+	fs fs.FileSystemOperator
 }
 
-func NewFuseRaw(mountPath string, fs *WebFs) *FuseRaw {
-	return nil
+func NewFuseRaw(fs fs.FileSystemOperator) *FuseRaw {
+	return &FuseRaw{fuse.NewDefaultRawFileSystem(), fs}
 }
 
-func (fr *FuseRaw) String() string {
-	return "webfs"
+func (r *FuseRaw) String() string {
+	return "FuseRaw"
 }
 
-// Called when the kernel wants to know if the user has permission to access the node. See [libfuse docs].
-// [libfuse docs]: https://libgithub.io/doxygen/structfuse__operations.html#a4dd366b9f74ead6927fb75afb91863bc
-func (fr *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Status {
+// Access called when the kernel wants to know if the user has permission to access the node.
+// If the 'default_permissions' mount option is given, this method is not called.
+func (r *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Status {
 	logger := util.GetLogger("Fuse.Access")
 	logger.Debug().
 		Interface("input", input).
@@ -33,7 +35,7 @@ func (fr *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Sta
 	return fuse.OK
 }
 
-func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out fuse.EntryOut) (status fuse.Status) {
+func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) (status fuse.Status) {
 	return fuse.OK
 }
 
