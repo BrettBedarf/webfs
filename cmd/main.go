@@ -9,8 +9,8 @@ import (
 
 	"github.com/brettbedarf/webfs"
 	"github.com/brettbedarf/webfs/adapters"
+	"github.com/brettbedarf/webfs/api"
 	"github.com/brettbedarf/webfs/config"
-	"github.com/brettbedarf/webfs/fs"
 	"github.com/brettbedarf/webfs/requests"
 	"github.com/brettbedarf/webfs/util"
 )
@@ -63,8 +63,8 @@ func main() {
 			logger.Error().Err(err).Msg("Failed to unmarshal sources")
 		}
 
-		var fileRequests []*fs.FileCreateRequest
-		var dirRequests []*fs.DirCreateRequest
+		var fileRequests []*api.FileCreateRequest
+		var dirRequests []*api.DirCreateRequest
 
 		for _, rawNode := range rawNodes {
 			// Determine the node type
@@ -75,7 +75,7 @@ func main() {
 			}
 
 			switch nodeType {
-			case fs.FileNodeType:
+			case api.FileNodeType:
 				fileReq, err := requests.UnmarshalFileRequest(rawNode)
 				if err != nil {
 					logger.Error().Err(err).Msg("Failed to unmarshal file request")
@@ -84,7 +84,7 @@ func main() {
 				fileRequests = append(fileRequests, fileReq)
 				logger.Debug().Str("path", fileReq.Path).Msg("Processed file request")
 
-			case fs.DirNodeType:
+			case api.DirNodeType:
 				dirReq, err := requests.UnmarshalDirRequest(rawNode)
 				if err != nil {
 					logger.Error().Err(err).Msg("Failed to unmarshal directory request")

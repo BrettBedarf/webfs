@@ -1,7 +1,8 @@
 package core
 
 import (
-	"github.com/brettbedarf/webfs/fs"
+	"github.com/brettbedarf/webfs/api"
+	"github.com/brettbedarf/webfs/config"
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
@@ -10,11 +11,23 @@ import (
 // See https://www.man7.org/linux//man-pages/man4/fuse.4.html
 type FuseRaw struct {
 	fuse.RawFileSystem
-	fs fs.FileSystemOperator
+	fs     api.FileSystemOperator
+	server *fuse.Server
+	cfg    *config.Config
 }
 
-func NewFuseRaw(fs fs.FileSystemOperator) *FuseRaw {
-	return &FuseRaw{fuse.NewDefaultRawFileSystem(), fs}
+func NewFuseRaw(fs api.FileSystemOperator) *FuseRaw {
+	return &FuseRaw{RawFileSystem: fuse.NewDefaultRawFileSystem(), fs: fs}
+}
+
+func (r *FuseRaw) Init(s *fuse.Server) {
+	logger := util.GetLogger("Fuse.Init")
+	logger.Debug().Interface("DebugData", s).Msg("FUSE initialized")
+}
+
+func (r *FuseRaw) OnUnmount() {
+	logger := util.GetLogger("Fuse.OnUnmount")
+	logger.Info().Msg("FUSE unmounted")
 }
 
 func (r *FuseRaw) String() string {
@@ -36,6 +49,9 @@ func (r *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Stat
 }
 
 func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) (status fuse.Status) {
+	logger := util.GetLogger("Fuse.Lookup")
+	logger.Debug().Interface("header", header).Str("name", name).Msg("Lookup called")
+
 	return fuse.OK
 }
 

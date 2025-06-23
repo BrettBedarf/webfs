@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,6 +59,7 @@ type MountOptions struct {
 
 // Config contains runtime configuration values for the HTTP filesystem.
 type Config struct {
+	mu sync.RWMutex
 	MountOptions
 	ChunkSize         int // Size of each data chunk in bytes (affects memory usage and transfer efficiency) (Default 1MB)
 	CacheMaxSize      int // Maximum total cache size in bytes (Default 200MB)

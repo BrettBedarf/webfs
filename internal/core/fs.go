@@ -7,20 +7,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/brettbedarf/webfs/api"
 	"github.com/brettbedarf/webfs/config"
-	"github.com/brettbedarf/webfs/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
-type FS struct {
+type FileSystem struct {
+	cfg      *config.Config
 	root     *Node             // Root of node tree
 	inodeMap map[uint64]*Inode // Map of inode numbers to Inodes
 	nextIno  atomic.Uint64     // Next inode number to assign
 	mu       sync.RWMutex
-	cfg      *config.Config
 }
 
-func NewFS(config *config.Config) *FS {
+func NewFS(cfg *config.Config) *FileSystem {
 	rootAttr := newDefaultAttr()
 	rootAttr.Ino = fuse.FUSE_ROOT_ID
 	rootAttr.Mode = uint32(syscall.S_IFDIR | 0755) // directory with rwxr-xr-x permissions
@@ -31,7 +31,8 @@ func NewFS(config *config.Config) *FS {
 	inodeMap := make(map[uint64]*Inode)
 	inodeMap[rootAttr.Ino] = rootInode
 
-	fs := FS{
+	fs := FileSystem{
+		cfg:      cfg,
 		root:     rootNode,
 		inodeMap: inodeMap,
 	}
@@ -40,17 +41,12 @@ func NewFS(config *config.Config) *FS {
 	return &fs
 }
 
-func (fs *FS) AddFileNode(req *fs.FileCreateRequest) error {
+func (fs *FileSystem) AddFileNode(req *api.FileCreateRequest) error {
 	return nil
 }
 
-func (fs *FS) AddDirNode(req *fs.DirCreateRequest) error {
+func (fs *FileSystem) AddDirNode(req *api.DirCreateRequest) error {
 	return nil
-}
-
-// Config returns a copy of the config
-func (fs *FS) Config() config.Config {
-	return *fs.cfg
 }
 
 func newDefaultAttr() fuse.Attr {

@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/brettbedarf/webfs/fs"
+	"github.com/brettbedarf/webfs/api"
 	"github.com/brettbedarf/webfs/util"
 )
 
 var (
 	mu        sync.RWMutex
-	factories = map[string]func([]byte) (fs.AdapterProvider, error){}
+	factories = map[string]func([]byte) (api.AdapterProvider, error){}
 )
 
 // Register ties a JSON‐raw factory to a “type” key and should be called for each
 // adapter type during app init
-func Register(adapterType string, unmarshal func(raw []byte) (fs.AdapterProvider, error)) {
+func Register(adapterType string, unmarshal func(raw []byte) (api.AdapterProvider, error)) {
 	mu.Lock()
 	factories[adapterType] = unmarshal
 	mu.Unlock()
@@ -25,7 +25,7 @@ func Register(adapterType string, unmarshal func(raw []byte) (fs.AdapterProvider
 // GetProvider picks the right factory based on the "type" field.
 // All expected source adapter types should be registered with [Register]
 // before calling this function.
-func GetProvider(raw []byte) (fs.AdapterProvider, error) {
+func GetProvider(raw []byte) (api.AdapterProvider, error) {
 	logger := util.GetLogger("adapters.GetFactory")
 	var meta struct {
 		Type string `json:"type"`

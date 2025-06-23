@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/brettbedarf/webfs/fs"
+	"github.com/brettbedarf/webfs/api"
 )
 
 type HTTPMethod = string
@@ -35,7 +35,7 @@ type HTTPSource struct {
 }
 
 func RegisterHTTP() {
-	Register("http", func(raw []byte) (fs.AdapterProvider, error) {
+	Register("http", func(raw []byte) (api.AdapterProvider, error) {
 		var config HTTPSource
 		if err := json.Unmarshal(raw, &config); err != nil {
 			return nil, err
@@ -44,11 +44,11 @@ func RegisterHTTP() {
 	})
 }
 
-func (h *HTTPSource) Adapter() fs.FileAdapter {
+func (h *HTTPSource) Adapter() api.FileAdapter {
 	return &HTTPAdapter{config: h}
 }
 
-// HTTPAdapter implements [fs.FileAdapter]for HTTP sources
+// HTTPAdapter implements [api.FileAdapter]for HTTP sources
 type HTTPAdapter struct {
 	config *HTTPSource
 }

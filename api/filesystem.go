@@ -1,5 +1,5 @@
-// fs package contains core filesystem types
-package fs
+// api package contains core filesystem types
+package api
 
 // NOTE: Shared package between public & internal and should avoid
 // importing other internal packages due to circular dependencies

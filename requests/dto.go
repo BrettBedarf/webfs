@@ -3,26 +3,26 @@ package requests
 import (
 	"time"
 
-	"github.com/brettbedarf/webfs/fs"
+	"github.com/brettbedarf/webfs/api"
 )
 
-// NodeRequestDTO is the JSON representation of [fs.NodeRequest]
+// NodeRequestDTO is the JSON representation of [api.NodeRequest]
 type NodeRequestDTO struct {
-	Path     string                   `json:"path"`
-	Type     fs.NodeCreateRequestType `json:"type"`
-	UUID     *string                  `json:"uuid,omitempty"`  // Optional UUID to enable linking at request time
-	Size     *uint64                  `json:"size,omitempty"`  // Optional size in bytes if known
-	Atime    *time.Time               `json:"atime,omitempty"` // Last Accessed at (Default current time)
-	Mtime    *time.Time               `json:"mtime,omitempty"` // Last Modified at (Default current time)
-	Ctime    *time.Time               `json:"ctime,omitempty"` // Created at (Default current time)
-	Perms    *uint32                  `json:"perms,omitempty"` // i.e. 0755
-	OwnerUID *uint32                  `json:"owner_uid,omitempty"`
-	OwnerGID *uint32                  `json:"owner_gid,omitempty"`
+	Path     string                    `json:"path"`
+	Type     api.NodeCreateRequestType `json:"type"`
+	UUID     *string                   `json:"uuid,omitempty"`  // Optional UUID to enable linking at request time
+	Size     *uint64                   `json:"size,omitempty"`  // Optional size in bytes if known
+	Atime    *time.Time                `json:"atime,omitempty"` // Last Accessed at (Default current time)
+	Mtime    *time.Time                `json:"mtime,omitempty"` // Last Modified at (Default current time)
+	Ctime    *time.Time                `json:"ctime,omitempty"` // Created at (Default current time)
+	Perms    *uint32                   `json:"perms,omitempty"` // i.e. 0755
+	OwnerUID *uint32                   `json:"owner_uid,omitempty"`
+	OwnerGID *uint32                   `json:"owner_gid,omitempty"`
 	// Blksize is the preferred size for file system operations.
 	Blksize *uint32 `json:"blksize,omitempty"`
 }
 
-// FileRequestDTO is the JSON representation of [fs.FileCreateRequest]
+// FileRequestDTO is the JSON representation of [api.FileCreateRequest]
 type FileRequestDTO struct {
 	NodeRequestDTO
 	Sources []SourceConfigDTO `json:"sources"`
@@ -32,7 +32,7 @@ type DirRequestDTO struct {
 	NodeRequestDTO
 }
 
-// SourceConfigDTO is the JSON representation of static [fs.SourceConfig] fields
+// SourceConfigDTO is the JSON representation of static [api.SourceConfig] fields
 //
 // Additional fields depend on the "type" value:
 //
