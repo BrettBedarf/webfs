@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-type FileSystemOperator interface {
-	AddFileNode(req *FileCreateRequest) error
-	AddDirNode(req *DirCreateRequest) error
-}
-
 // FileAdapter defines the core operations for retrieving file data from various sources
 type FileAdapter interface {
 	// Opens the file and returns a Reader

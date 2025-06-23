@@ -1,7 +1,6 @@
 package core
 
 import (
-	"github.com/brettbedarf/webfs/api"
 	"github.com/brettbedarf/webfs/config"
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -11,12 +10,12 @@ import (
 // See https://www.man7.org/linux//man-pages/man4/fuse.4.html
 type FuseRaw struct {
 	fuse.RawFileSystem
-	fs     api.FileSystemOperator
+	fs     FileSystemOperator
 	server *fuse.Server
 	cfg    *config.Config
 }
 
-func NewFuseRaw(fs api.FileSystemOperator) *FuseRaw {
+func NewFuseRaw(fs FileSystemOperator) *FuseRaw {
 	return &FuseRaw{RawFileSystem: fuse.NewDefaultRawFileSystem(), fs: fs}
 }
 

@@ -98,12 +98,28 @@ func main() {
 			}
 		}
 
-		logger.Info().
+		logger.Debug().
 			Int("files", len(fileRequests)).
 			Int("directories", len(dirRequests)).
-			Msg("Successfully processed source requests")
+			Msg("Successfully loaded source requests")
 
-		// TODO: Add nodes to webfs
+		// Add nodes to webfs
+		dirAddCnt := 0
+		for _, req := range dirRequests {
+			if _, err := webfs.AddDirNode(req); err != nil {
+				logger.Debug().Interface("request", req).Err(err).Msg("Failed to add directory request")
+			}
+			dirAddCnt++
+		}
+		fileAddCnt := 0
+		for _, req := range fileRequests {
+			if _, err := webfs.AddFileNode(req); err != nil {
+				logger.Debug().Interface("request", req).Err(err).Msg("Failed to add file request")
+			} else {
+				fileAddCnt++
+			}
+		}
+		logger.Info().Int("directories", dirAddCnt).Int("files", fileAddCnt).Msg("Added new nodes to filesystem")
 	} else {
 		logger.Warn().Msg("No sources file provided")
 	}
