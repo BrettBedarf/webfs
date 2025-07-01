@@ -1,9 +1,12 @@
 package core
 
 import (
+	"sync/atomic"
+
 	"github.com/brettbedarf/webfs/config"
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // FuseRaw implements the low-level FUSE wire protocol
@@ -13,15 +16,28 @@ type FuseRaw struct {
 	fs     FileSystemOperator
 	server *fuse.Server
 	cfg    *config.Config
+	// Map of NodeID to Node. Added during Lookup and deleted during Forget calls
+	nodeMap *xsync.Map[uint64, *Node]
+	// Last NodeID  assigned; incremented during Lookup calls
+	lastNodeID atomic.Uint64
 }
 
 func NewFuseRaw(fs FileSystemOperator) *FuseRaw {
-	return &FuseRaw{RawFileSystem: fuse.NewDefaultRawFileSystem(), fs: fs}
+	r := FuseRaw{
+		RawFileSystem: fuse.NewDefaultRawFileSystem(),
+		fs:            fs,
+		nodeMap:       xsync.NewMap[uint64, *Node](),
+	}
+	r.lastNodeID.Store(fuse.FUSE_ROOT_ID)
+	r.nodeMap.Store(fuse.FUSE_ROOT_ID, fs.Root())
+
+	return &r
 }
 
 func (r *FuseRaw) Init(s *fuse.Server) {
 	logger := util.GetLogger("Fuse.Init")
 	logger.Debug().Interface("DebugData", s).Msg("FUSE initialized")
+	r.server = s
 }
 
 func (r *FuseRaw) OnUnmount() {
@@ -47,11 +63,22 @@ func (r *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Stat
 	return fuse.OK
 }
 
+// Lookup is called by the kernel when the VFS wants to know
+// about a file inside a directory. Many lookup calls can
+// occur in parallel, but only one call happens for each (dir,
+// name) pair.
 func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) (status fuse.Status) {
 	logger := util.GetLogger("Fuse.Lookup")
 	logger.Debug().Interface("header", header).Str("name", name).Msg("Lookup called")
-
+	// TODO: Prob want lock between lookup and forget
 	return fuse.OK
+}
+
+func (r *FuseRaw) ReadDir(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.DirEntryList) fuse.Status {
+	logger := util.GetLogger("Fuse.ReadDir")
+	logger.Debug().Interface("input", input).Msg("ReadDir called")
+
+	return fuse.ENOSYS // Not implemented yet
 }
 
 //	func (fr *FuseRaw) ReadDir(cancel <-chan struct{}, input *ReadIn, out *DirEntryList) Status {
