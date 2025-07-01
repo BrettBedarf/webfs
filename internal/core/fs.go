@@ -14,19 +14,22 @@ import (
 	"github.com/brettbedarf/webfs/config"
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 type FileSystemOperator interface {
+	Root() *Node
 	AddFileNode(req *api.FileCreateRequest) (*Node, error)
 	AddDirNode(req *api.DirCreateRequest) (*Node, error)
+	InodeFromIno(ino uint64) (inode *Inode, ok bool)
+	AttrFromIno(ino uint64) (attr *fuse.Attr, ok bool)
 }
 
 type FileSystem struct {
-	cfg      *config.Config
-	root     *Node             // Root of node tree
-	inodeMap map[uint64]*Inode // Map of inode numbers to Inodes
-	lastIno  atomic.Uint64     // Last inode number assigned; incremented when new nodes are created
-	mu       sync.RWMutex
+	cfg     *config.Config
+	root    *Node         // Root of node tree
+	lastIno atomic.Uint64 // Last inode number assigned; incremented when new nodes are created
+	mu      sync.RWMutex
 }
 
 func NewFS(cfg *config.Config) *FileSystem {
@@ -36,17 +39,21 @@ func NewFS(cfg *config.Config) *FileSystem {
 	rootInode := NewInode(rootAttr)
 	rootNode := NewNode("", rootInode) // TODO: should be "." ??
 
-	inodeMap := make(map[uint64]*Inode)
-	inodeMap[rootAttr.Ino] = rootInode
+	// inodeMap := make(map[uint64]*Inode)
+	inodeMap := xsync.NewMap[uint64, *Inode]()
+	inodeMap.Store(fuse.FUSE_ROOT_ID, rootInode)
 
 	fs := FileSystem{
-		cfg:      cfg,
-		root:     rootNode,
-		inodeMap: inodeMap,
+		cfg:  cfg,
+		root: rootNode,
 	}
 	fs.lastIno.Store(fuse.FUSE_ROOT_ID)
 
 	return &fs
+}
+
+func (fs *FileSystem) Root() *Node {
+	return fs.root
 }
 
 // AddFileNode adds a new file node to the filesystem. It will add any missing
