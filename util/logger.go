@@ -46,7 +46,11 @@ func InitializeLogger(level LogLevel) {
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
 
 	// Set global logger
-	log.Logger = zerolog.New(output).With().Timestamp().Caller().Logger()
+	ctx := zerolog.New(output).With().Timestamp()
+	if level == DebugLevel {
+		ctx = ctx.Caller()
+	}
+	log.Logger = ctx.Logger()
 	log.Info().Msg("Logger initialized")
 }
 

@@ -38,7 +38,7 @@ func main() {
 	util.InitializeLogger(logLevel)
 	logger := util.GetLogger("main")
 
-	logger.Debug().Bool("debug", debug).Str("nodes", nodesDef).Str("mnt", mnt).Msg("CLI Args")
+	logger.Info().Bool("debug", debug).Str("nodes", nodesDef).Str("mnt", mnt).Msg("WebFS server initializing")
 	// Check if mount point is provided
 	if mnt == "" {
 		logger.Fatal().Msg("Mount point not specified; it must be passed as the argument")
@@ -48,9 +48,11 @@ func main() {
 	adapters.RegisterBuiltins()
 
 	// Init the fs
-	cfg := config.NewDefaultConfig()
-	webfs := webfs.New(cfg)
+	cfg := config.NewConfig(&config.ConfigOverride{
+		Debug: &debug,
+	})
 
+	fs := webfs.New(cfg)
 	// Load sources
 	if nodesDef != "" {
 		defData, err := os.ReadFile(nodesDef)
@@ -106,14 +108,14 @@ func main() {
 		// Add nodes to webfs
 		dirAddCnt := 0
 		for _, req := range dirRequests {
-			if _, err := webfs.AddDirNode(req); err != nil {
+			if _, err := fs.AddDirNode(req); err != nil {
 				logger.Debug().Interface("request", req).Err(err).Msg("Failed to add directory request")
 			}
 			dirAddCnt++
 		}
 		fileAddCnt := 0
 		for _, req := range fileRequests {
-			if _, err := webfs.AddFileNode(req); err != nil {
+			if _, err := fs.AddFileNode(req); err != nil {
 				logger.Debug().Interface("request", req).Err(err).Msg("Failed to add file request")
 			} else {
 				fileAddCnt++
@@ -125,7 +127,7 @@ func main() {
 	}
 
 	// Serve
-	if err := webfs.Serve(mnt); err != nil {
+	if err := fs.Serve(mnt); err != nil {
 		logger.Fatal().Err(err).Msg("Failed to mount filesystem")
 	}
 
@@ -140,7 +142,7 @@ func main() {
 	logger.Info().Str("signal", sig.String()).Msg("Received signal, unmounting filesystem")
 
 	// Unmount the filesystem
-	if err := webfs.Unmount(); err != nil {
+	if err := fs.Unmount(); err != nil {
 		logger.Error().Err(err).Msg("Failed to unmount filesystem")
 	} else {
 		logger.Info().Msg("Filesystem unmounted successfully")

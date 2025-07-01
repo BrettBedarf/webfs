@@ -100,9 +100,9 @@ type ConfigOverride struct {
 	Name              *string  `yaml:"name,omitempty" json:"name,omitempty"`
 }
 
-// NewDefaultConfig creates a new Config with all default values.
-func NewDefaultConfig() *Config {
-	return &Config{
+// NewConfig creates a new Config with all default values.
+func NewConfig(override *ConfigOverride) *Config {
+	cfg := &Config{
 		MountOptions: MountOptions{
 			Debug:  DefaultDebug,
 			FsName: DefaultFsName,
@@ -118,11 +118,18 @@ func NewDefaultConfig() *Config {
 		EntryTimeout:      DefaultEntryTimeout,
 		DirectIO:          DefaultDirectIO,
 	}
+
+	cfg.Merge(override)
+
+	return cfg
 }
 
 // Merge applies non-nil values from override onto this Config.
 // This allows partial configuration updates while preserving existing values.
 func (c *Config) Merge(override *ConfigOverride) {
+	if override == nil {
+		return
+	}
 	if override.ChunkSize != nil {
 		c.ChunkSize = *override.ChunkSize
 	}
@@ -192,11 +199,10 @@ func LoadConfigOverrideFile(path string) (*ConfigOverride, error) {
 // NewConfigFromFile creates a new Config by merging file overrides with defaults.
 // This is a convenience function that combines NewDefaultConfig, LoadConfigOverrideFile, and Merge.
 func NewConfigFromFile(path string) (*Config, error) {
-	cfg := NewDefaultConfig()
 	override, err := LoadConfigOverrideFile(path)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Merge(override)
+	cfg := NewConfig(override)
 	return cfg, nil
 }
