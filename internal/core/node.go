@@ -40,6 +40,24 @@ func (n *Node) AddChild(child *Node) {
 	child.parent = n
 }
 
+// internal children accessor when Node is already locked
+// such as in NodeContext
+func (n *Node) childrenLocked() []string {
+	keys := make([]string, 0, len(n.children))
+	for name := range n.children {
+		keys = append(keys, name)
+	}
+	return keys
+}
+
+// ChildrenSafe returns the children of the node with its own lock.
+// Not to be called when Node is already locked in NodeContext
+func (n *Node) ChildrenSafe() []string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.childrenLocked()
+}
+
 func (n *Node) GetChild(name string) (child *Node, ok bool) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -56,4 +74,17 @@ func (n *Node) RemoveChild(name string) bool {
 		return true
 	}
 	return false
+}
+
+// internal name accessor when Node is already locked
+func (n *Node) nameLocked() string {
+	return n.Name
+}
+
+// NameSafe returns the name of the node with its own lock.
+// Not to be called when Node is already locked in NodeContext
+func (n *Node) NameSafe() string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.nameLocked()
 }
