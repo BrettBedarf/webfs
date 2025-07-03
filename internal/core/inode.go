@@ -7,7 +7,8 @@ import (
 )
 
 type Inode struct {
-	// Low-level fuse wire protocol attributes
+	// Low-level fuse wire protocol attributes; Only access directly if
+	// handling locks manually
 	fuseAttr *fuse.Attr
 	hLinks   []*Node // Hard links to this inode
 	sLinks   []*Node // Symbolic links to this inode
@@ -22,38 +23,23 @@ func NewInode(attr *fuse.Attr) *Inode {
 	}
 }
 
-// Adds a new Node, including the initial, as hard link
-func (n *Inode) AddHardLink(node *Node) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
+// addHardLinkLocked appends a new hard link to the inode.
+// Caller must hold n.mu.Lock().
+func (n *Inode) addHardLinkLocked(node *Node) {
 	n.hLinks = append(n.hLinks, node)
 	n.fuseAttr.Nlink++
 }
 
-// type PersistInode struct {
-// 	Ino  uint64
-// 	Size uint64
-//
-// 	// Blocks is the number of 512-byte blocks that the file occupies on disk.
-// 	Blocks    uint64
-// 	Atime     uint64
-// 	Mtime     uint64
-// 	Ctime     uint64
-// 	Atimensec uint32
-// 	Mtimensec uint32
-// 	Ctimensec uint32
-// 	Mode      uint32
-// 	Nlink     uint32
-// 	OwnerUid  uint32
-// 	OwnerGid  uint32
-// 	// NOTE: Only non-zero for device files (see S_IFCHR and S_IFBLK) (N/A)
-// 	Rdev uint32
-//
-// 	// Blksize is the preferred size for file system operations.
-// 	Blksize   uint32
-// 	Padding   uint32
-// 	HLinkIDs  []int64 // IDs of hardlinked nodes TODO: might have circular ref problems persisting
-// 	SLinkIDs  []int64 // IDs of symbolic linked nodes
-// 	SourceDef any     // TODO: maybe a table with type/meta + json blob?
-// }
+// AddHardLink adds a new Node, including the initial, as hard link
+func (n *Inode) AddHardLink(node *Node) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.addHardLinkLocked(node)
+}
+
+// CopyAttr returns a thread-safe copy of the inode's attributes
+func (n *Inode) CopyAttr() fuse.Attr {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return *n.fuseAttr
+}

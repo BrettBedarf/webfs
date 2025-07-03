@@ -1,36 +1,46 @@
 package core
 
 import (
-	"sync/atomic"
-
-	"github.com/brettbedarf/webfs/config"
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
+// NodeIDManager handles mapping between Fuse NodeIDs and core Nodes.
+// Context-based methods are thread-safe wrappers whose ctx.Close()
+// must be called when finished to unlock all associated locks
+type NodeIDManager interface {
+	// AllocateNodeID(node *Node) uint64
+	LookupNodeID(id uint64) (ctx *NodeContext, ok bool)
+	ForgetNodeID(id uint64)
+	// See [FileSystem.LookupChildCtx]
+	GetChildCtx(parentID uint64, name string) (ctx *NodeContext, ok bool)
+}
+
+// FileHandleManager is responsible for mapping between Fuse FileHandles and core Nodes
+// TODO:
+type FileHandleManager interface {
+	// OpenHandle is called on Open(); Associates a new file handle
+	// with a node
+	OpenHandle(nodeID uint64) uint64
+	LookupHandle(fh uint64) (*Node, error)
+	// CloseHandle is called on release & cleanup
+	CloseHandle(fh uint64)
+}
+
 // FuseRaw implements the low-level FUSE wire protocol
+// It serves as protocol adapter between the FUSE and core filesystem
 // See https://www.man7.org/linux//man-pages/man4/fuse.4.html
 type FuseRaw struct {
 	fuse.RawFileSystem
-	fs     FileSystemOperator
+	fs     NodeIDManager
 	server *fuse.Server
-	cfg    *config.Config
-	// Map of NodeID to Node. Added during Lookup and deleted during Forget calls
-	nodeMap *xsync.Map[uint64, *Node]
-	// Last NodeID  assigned; incremented during Lookup calls
-	lastNodeID atomic.Uint64
 }
 
 func NewFuseRaw(fs FileSystemOperator) *FuseRaw {
 	r := FuseRaw{
 		RawFileSystem: fuse.NewDefaultRawFileSystem(),
 		fs:            fs,
-		nodeMap:       xsync.NewMap[uint64, *Node](),
 	}
-	r.lastNodeID.Store(fuse.FUSE_ROOT_ID)
-	r.nodeMap.Store(fuse.FUSE_ROOT_ID, fs.Root())
-
 	return &r
 }
 
@@ -67,11 +77,33 @@ func (r *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Stat
 // about a file inside a directory. Many lookup calls can
 // occur in parallel, but only one call happens for each (dir,
 // name) pair.
-func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) (status fuse.Status) {
+// Lookup retrieves a child node by name and registers it in the core registry
+func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) fuse.Status {
 	logger := util.GetLogger("Fuse.Lookup")
 	logger.Debug().Interface("header", header).Str("name", name).Msg("Lookup called")
-	// TODO: Prob want lock between lookup and forget
+	// locate parent node via registry
+	// 1) lookup parent in NodeID registry
+	ctx, ok := r.fs.GetChildCtx(header.NodeId, name)
+	if !ok {
+		return fuse.ENOENT
+	}
+	defer ctx.Close()
+
+	// out.Attr = attrCopy
+	// 5) set TTLs
+	out.SetAttrTimeout(120)
+	out.SetEntryTimeout(120)
 	return fuse.OK
+}
+
+// Forget is called when the kernel discards entries from its
+// dentry cache. This happens on unmount, and when the kernel
+// is short on memory. Since it is not guaranteed to occur at
+// any moment, and since there is no return value, Forget
+// should not do I/O, as there is no channel to report back
+// I/O errors.
+func (r *FuseRaw) Forget(nodeid, nlookup uint64) {
+	r.fs.ForgetNodeID(nlookup)
 }
 
 func (r *FuseRaw) ReadDir(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.DirEntryList) fuse.Status {

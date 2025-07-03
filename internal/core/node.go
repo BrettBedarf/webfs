@@ -2,11 +2,15 @@ package core
 
 import (
 	"sync"
+	"sync/atomic"
 )
+
+// TODO: separate lock just for children slice
 
 type Node struct {
 	*Inode
-	Name     string // Name of the node (last part of the path)
+	name     string        // Name of the node (last part of the path)
+	nodeID   atomic.Uint64 // Active registry ID; 0 if not registered
 	parent   *Node
 	children map[string]*Node // map of child nodes by name
 	mu       sync.RWMutex
@@ -18,7 +22,7 @@ type Node struct {
 func NewNode(name string, inode *Inode) *Node {
 	node := &Node{
 		Inode:    inode,
-		Name:     name,
+		name:     name,
 		parent:   nil, // parent node must add this node as child
 		children: make(map[string]*Node),
 	}
@@ -28,16 +32,46 @@ func NewNode(name string, inode *Inode) *Node {
 	return node
 }
 
+// NodeID returns the nodeID of the node (Thread-safe); 0 if not registered
+func (n *Node) NodeID() uint64 {
+	return n.nodeID.Load()
+}
+
 // AddChild adds a child node to the node's children map
 // and sets the child's parent to this node
 func (n *Node) AddChild(child *Node) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.children[child.Name] = child
+	n.children[child.name] = child
 
 	child.mu.Lock()
 	defer child.mu.Unlock()
 	child.parent = n
+}
+
+// internal children accessor when Node is already locked
+// such as in NodeContext
+// TODO: Thread-safe way to pass around Map/List of actual child Nodes or even ditch direct access
+func (n *Node) childrenLocked() []string {
+	keys := make([]string, 0, len(n.children))
+	for name := range n.children {
+		keys = append(keys, name)
+	}
+	return keys
+}
+
+// ChildrenSafe returns the children of the node with its own lock.
+// Not to be called when Node is already locked in NodeContext
+func (n *Node) ChildrenSafe() []string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.childrenLocked()
+}
+
+// internal child accessor when Node is already locked
+func (n *Node) getChildLocked(name string) (child *Node, ok bool) {
+	child, ok = n.children[name]
+	return
 }
 
 func (n *Node) GetChild(name string) (child *Node, ok bool) {
@@ -56,4 +90,17 @@ func (n *Node) RemoveChild(name string) bool {
 		return true
 	}
 	return false
+}
+
+// internal name accessor when Node is already locked
+func (n *Node) nameLocked() string {
+	return n.name
+}
+
+// NameSafe returns the name of the node with its own lock.
+// Not to be called when Node is already locked in NodeContext
+func (n *Node) NameSafe() string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.nameLocked()
 }
