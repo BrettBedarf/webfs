@@ -1,6 +1,8 @@
 package core
 
 import (
+	"time"
+
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
@@ -10,10 +12,10 @@ import (
 // must be called when finished to unlock all associated locks
 type NodeIDManager interface {
 	// AllocateNodeID(node *Node) uint64
-	LookupNodeID(id uint64) (ctx *NodeContext, ok bool)
-	ForgetNodeID(id uint64)
+	GetNodeCtx(nodeID uint64) (ctx *NodeContext, ok bool)
 	// See [FileSystem.LookupChildCtx]
 	GetChildCtx(parentID uint64, name string) (ctx *NodeContext, ok bool)
+	ForgetNodeID(id uint64)
 }
 
 // FileHandleManager is responsible for mapping between Fuse FileHandles and core Nodes
@@ -26,6 +28,11 @@ type FileHandleManager interface {
 	// CloseHandle is called on release & cleanup
 	CloseHandle(fh uint64)
 }
+
+const (
+	defaultAttrTimeout  = time.Duration(1) * time.Second  // 1 second
+	defaultEntryTimeout = time.Duration(60) * time.Second // 60 seconds
+)
 
 // FuseRaw implements the low-level FUSE wire protocol
 // It serves as protocol adapter between the FUSE and core filesystem
@@ -59,7 +66,7 @@ func (r *FuseRaw) String() string {
 	return "FuseRaw"
 }
 
-// Access called when the kernel wants to know if the user has permission to access the node.
+// Access is called when the kernel wants to know if the user has permission to access the node.
 // If the 'default_permissions' mount option is given, this method is not called.
 func (r *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Status {
 	logger := util.GetLogger("Fuse.Access")
@@ -77,22 +84,20 @@ func (r *FuseRaw) Access(cancel <-chan struct{}, input *fuse.AccessIn) fuse.Stat
 // about a file inside a directory. Many lookup calls can
 // occur in parallel, but only one call happens for each (dir,
 // name) pair.
-// Lookup retrieves a child node by name and registers it in the core registry
 func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name string, out *fuse.EntryOut) fuse.Status {
 	logger := util.GetLogger("Fuse.Lookup")
 	logger.Debug().Interface("header", header).Str("name", name).Msg("Lookup called")
-	// locate parent node via registry
-	// 1) lookup parent in NodeID registry
+
 	ctx, ok := r.fs.GetChildCtx(header.NodeId, name)
+	defer ctx.Close()
 	if !ok {
+		logger.Debug().Str("name", name).Msg("Lookup: no child found")
 		return fuse.ENOENT
 	}
-	defer ctx.Close()
-
-	// out.Attr = attrCopy
-	// 5) set TTLs
-	out.SetAttrTimeout(120)
-	out.SetEntryTimeout(120)
+	out.NodeId = ctx.NodeID()
+	out.Attr = ctx.Attr()
+	out.SetAttrTimeout(defaultAttrTimeout)
+	out.SetEntryTimeout(defaultEntryTimeout)
 	return fuse.OK
 }
 
@@ -103,7 +108,31 @@ func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name str
 // should not do I/O, as there is no channel to report back
 // I/O errors.
 func (r *FuseRaw) Forget(nodeid, nlookup uint64) {
+	logger := util.GetLogger("Fuse.Forget")
+	logger.Debug().Uint64("nodeid", nodeid).Uint64("nlookup", nlookup).Msg("Forget called")
+
 	r.fs.ForgetNodeID(nlookup)
+}
+
+func (r *FuseRaw) GetAttr(cancel <-chan struct{}, header *fuse.GetAttrIn, out *fuse.AttrOut) fuse.Status {
+	logger := util.GetLogger("Fuse.GetAttr")
+	logger.Debug().Interface("header", header).Msg("GetAttr called")
+
+	ctx, ok := r.fs.GetNodeCtx(header.NodeId)
+	defer ctx.Close()
+	if !ok {
+		logger.Debug().Uint64("nodeid", header.NodeId).Msg("No node found")
+		return fuse.ENOENT
+	}
+	out.Attr = ctx.Attr()
+	out.SetTimeout(defaultAttrTimeout)
+	return fuse.OK
+}
+
+func (r *FuseRaw) SetAttr(cancel <-chan struct{}, header *fuse.SetAttrIn, out *fuse.AttrOut) fuse.Status {
+	logger := util.GetLogger("Fuse.SetAttr")
+	logger.Debug().Interface("header", header).Msg("SetAttr called")
+	return fuse.ENOSYS
 }
 
 func (r *FuseRaw) ReadDir(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.DirEntryList) fuse.Status {
