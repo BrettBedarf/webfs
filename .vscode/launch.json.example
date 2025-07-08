@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "go",
+      "request": "launch",
+      "name": "Launch WebFS",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "-debug",
+        "-nodes",
+        "${input:nodesFile}",
+        "${input:mountPoint}"
+      ],
+      "showLog": true,
+      "trace": "verbose",
+      "outputMode": "remote"
+    }
+  ],
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "nodesFile",
+      "default": "examples/pub_sources.json",
+      "description": "Path to nodes definition file (optional, press Enter to skip)"
+    },
+    {
+      "type": "promptString",
+      "id": "mountPoint",
+      "default": "/mnt/webfs",
+      "description": "Mount point directory path"
+    }
+  ]
+}
