@@ -5,7 +5,6 @@ import (
 	"os"
 	"path"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -32,12 +31,11 @@ type FileSystem struct {
 	lastIno      atomic.Uint64             // Last fuse Attr.Ino assigned; incremented when new nodes are created
 	lastNodeID   atomic.Uint64             // Last registry NodeID assigned; assigned on-demand for session only
 	nodeRegistry *xsync.Map[uint64, *Node] // maps registry NodeIDs to core Nodes
-	mu           sync.RWMutex
 }
 
 func NewFS(cfg *config.Config) *FileSystem {
 	rootAttr := newDefaultAttr(fuse.FUSE_ROOT_ID)
-	rootAttr.Mode = uint32(syscall.S_IFDIR | 0755) // directory with rwxr-xr-x permissions
+	rootAttr.Mode = uint32(syscall.S_IFDIR | 0o555) // directory with r-xr-xr-x permissions
 
 	rootInode := NewInode(rootAttr)
 	rootNode := NewNode("", rootInode) // TODO: should be "." ??

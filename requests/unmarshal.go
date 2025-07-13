@@ -98,7 +98,7 @@ func convertNodeDTO(dto NodeRequestDTO) api.NodeRequest {
 		Atime:    valueOrDefault(dto.Atime, now),
 		Mtime:    valueOrDefault(dto.Mtime, now),
 		Ctime:    valueOrDefault(dto.Ctime, now),
-		Perms:    valueOrDefault(dto.Perms, 0644),
+		Perms:    valueOrDefault(dto.Perms, 0o644),
 		OwnerUID: valueOrDefault(dto.OwnerUID, 1000),
 		OwnerGID: valueOrDefault(dto.OwnerGID, 1000),
 		Blksize:  valueOrDefault(dto.Blksize, 4096),

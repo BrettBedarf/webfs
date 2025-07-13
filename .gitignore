@@ -5,3 +5,4 @@
 .lazy.lua
 scratch/**
 __debug_*
+.lazy.lua
