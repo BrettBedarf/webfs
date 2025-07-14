@@ -3,13 +3,13 @@ package requests
 import (
 	"time"
 
-	"github.com/brettbedarf/webfs/api"
+	"github.com/brettbedarf/webfs"
 )
 
-// NodeRequestDTO is the JSON representation of [api.NodeRequest]
+// NodeRequestDTO is the JSON representation of [webfs.NodeRequest]
 type NodeRequestDTO struct {
 	Path     string                    `json:"path"`
-	Type     api.NodeCreateRequestType `json:"type"`
+	Type     webfs.NodeCreateRequestType `json:"type"`
 	UUID     *string                   `json:"uuid,omitempty"`  // Optional UUID to enable linking at request time
 	Size     *uint64                   `json:"size,omitempty"`  // Optional size in bytes if known
 	Atime    *time.Time                `json:"atime,omitempty"` // Last Accessed at (Default current time)

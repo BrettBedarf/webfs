@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/brettbedarf/webfs/util"
+	"github.com/brettbedarf/webfs/internal/util"
 	"gopkg.in/yaml.v3"
 )
 

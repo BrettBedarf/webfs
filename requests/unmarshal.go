@@ -6,14 +6,14 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/brettbedarf/webfs"
 	"github.com/brettbedarf/webfs/adapters"
-	"github.com/brettbedarf/webfs/api"
 )
 
 // GetNodeType extracts the node type from JSON without full unmarshaling
-func GetNodeType(data []byte) (api.NodeCreateRequestType, error) {
+func GetNodeType(data []byte) (webfs.NodeCreateRequestType, error) {
 	var meta struct {
-		Type api.NodeCreateRequestType `json:"type"`
+		Type webfs.NodeCreateRequestType `json:"type"`
 	}
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return "", err
@@ -22,7 +22,7 @@ func GetNodeType(data []byte) (api.NodeCreateRequestType, error) {
 }
 
 // UnmarshalFileRequest handles file-specific unmarshaling with sources
-func UnmarshalFileRequest(data []byte) (*api.FileCreateRequest, error) {
+func UnmarshalFileRequest(data []byte) (*webfs.FileCreateRequest, error) {
 	var dto FileRequestDTO
 	if err := json.Unmarshal(data, &dto); err != nil {
 		return nil, err
@@ -36,33 +36,33 @@ func UnmarshalFileRequest(data []byte) (*api.FileCreateRequest, error) {
 		return nil, err
 	}
 
-	return &api.FileCreateRequest{
+	return &webfs.FileCreateRequest{
 		NodeRequest: coreNode,
 		Sources:     sources,
 	}, nil
 }
 
 // UnmarshalDirRequest handles explicit directory unmarshaling (no sources)
-func UnmarshalDirRequest(data []byte) (*api.DirCreateRequest, error) {
+func UnmarshalDirRequest(data []byte) (*webfs.DirCreateRequest, error) {
 	var dto DirRequestDTO
 	if err := json.Unmarshal(data, &dto); err != nil {
 		return nil, err
 	}
 
-	return &api.DirCreateRequest{
+	return &webfs.DirCreateRequest{
 		NodeRequest: convertNodeDTO(dto.NodeRequestDTO),
 	}, nil
 }
 
 // Helper function to process sources array
-func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]api.FileSource, error) {
+func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]webfs.FileSource, error) {
 	// Extract raw sources array from JSON for adapter registry
 	var rawMessage struct {
 		Sources []json.RawMessage `json:"sources"`
 	}
 	json.Unmarshal(rawData, &rawMessage)
 
-	var sources []api.FileSource
+	var sources []webfs.FileSource
 	for i, rawSource := range rawMessage.Sources {
 		// Use adapter registry to get provider
 		provider, err := adapters.GetProvider(rawSource)
@@ -76,7 +76,7 @@ func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]api.FileS
 			priority = *sourceDTOs[i].Priority
 		}
 
-		sources = append(sources, api.FileSource{
+		sources = append(sources, webfs.FileSource{
 			AdapterProvider: provider,
 			Priority:        priority,
 		})
@@ -87,10 +87,10 @@ func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]api.FileS
 
 // Conversion logic with defaults in the unmarshaling layer
 // TODO: Use global configuration defaults
-func convertNodeDTO(dto NodeRequestDTO) api.NodeRequest {
+func convertNodeDTO(dto NodeRequestDTO) webfs.NodeRequest {
 	now := time.Now()
 
-	return api.NodeRequest{
+	return webfs.NodeRequest{
 		Path:     dto.Path,
 		Type:     dto.Type,
 		UUID:     valueOrDefault(dto.UUID, uuid.New().String()),

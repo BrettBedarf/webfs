@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/brettbedarf/webfs/api"
+	"github.com/brettbedarf/webfs"
 )
 
 type HTTPMethod = string
@@ -35,7 +35,7 @@ type HTTPSource struct {
 }
 
 func RegisterHTTP() {
-	Register("http", func(raw []byte) (api.AdapterProvider, error) {
+	Register("http", func(raw []byte) (webfs.AdapterProvider, error) {
 		var config HTTPSource
 		if err := json.Unmarshal(raw, &config); err != nil {
 			return nil, err
@@ -44,11 +44,11 @@ func RegisterHTTP() {
 	})
 }
 
-func (h *HTTPSource) Adapter() api.FileAdapter {
+func (h *HTTPSource) Adapter() webfs.FileAdapter {
 	return &HTTPAdapter{config: h}
 }
 
-// HTTPAdapter implements [api.FileAdapter]for HTTP sources
+// HTTPAdapter implements [webfs.FileAdapter] for HTTP sources
 type HTTPAdapter struct {
 	config *HTTPSource
 }
@@ -65,6 +65,10 @@ func (h *HTTPAdapter) newRequest(ctx context.Context, method HTTPMethod) (*http.
 	}
 
 	return req, nil
+}
+
+func (h *HTTPAdapter) Stat(ctx context.Context) error {
+	return fmt.Errorf("Stat not implemented")
 }
 
 func (h *HTTPAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
