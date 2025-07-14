@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 
@@ -19,37 +20,49 @@ func main() {
 	// Parse command line arguments
 	var (
 		// configPath string
-		debug    bool
+		verbose  int
 		nodesDef string
+		umount   bool
 	)
 	// configPath := flag.String("config", "", "Path to config file")
-	flag.BoolVar(&debug, "debug", false, "Enable debug logging")
-	flag.BoolVar(&debug, "d", false, "Enable debug logging (shorthand)")
 	flag.StringVar(&nodesDef, "nodes", "", "Path to nodes def file")
-	flag.StringVar(&nodesDef, "n", "", "Path to nodes def file (shorthand")
+	flag.StringVar(&nodesDef, "n", "", "--nodes (shorthand)")
+	flag.BoolVar(&umount, "umount", false, "Unmount the fs first if needed before mounting again. Useful for debuggers that don't exit properly.")
+	flag.BoolVar(&umount, "u", false, "--umount (shorthand)")
+	flag.IntVar(&verbose, "verbose", 3, "Log verbosity level between 1 (error) and 5 (trace). Default is 3 (info).")
+	flag.IntVar(&verbose, "v", 3, "--verbose (shorthand)")
 	flag.Parse()
-	mnt := flag.Arg(0)
 
 	// Initialize logger
-	logLevel := util.InfoLevel
-	if debug {
-		logLevel = util.DebugLevel
+	if verbose < 1 {
+		verbose = 1
 	}
-	util.InitializeLogger(logLevel)
+	if verbose > 5 {
+		verbose = 5
+	}
+	logLvls := [5]util.LogLevel{util.ErrorLevel, util.WarnLevel, util.InfoLevel, util.DebugLevel, util.TraceLevel}
+	logLvl := logLvls[verbose-1]
+	util.InitializeLogger(logLvl)
 	logger := util.GetLogger("main")
 
-	logger.Info().Bool("debug", debug).Str("nodes", nodesDef).Str("mnt", mnt).Msg("WebFS server initializing")
+	mnt := flag.Arg(0)
+	logger.Info().Int("verbose", verbose).Str("nodes", nodesDef).Str("mnt", mnt).Msg("WebFS server initializing")
 	// Check if mount point is provided
 	if mnt == "" {
 		logger.Fatal().Msg("Mount point not specified; it must be passed as the argument")
 	}
-
+	// Try unmount if requested
+	if umount {
+		// send cli command
+		cmd := exec.Command("fusermount", "-u", mnt)
+		cmd.Run() // we ignore error here if not already mounted
+	}
 	// Register all built-in adapters
 	adapters.RegisterBuiltins()
 
 	// Init the fs
 	cfg := config.NewConfig(&config.ConfigOverride{
-		Debug: &debug,
+		LogLvl: &logLvl,
 	})
 
 	fs := webfs.New(cfg)
@@ -133,7 +146,7 @@ func main() {
 
 	// Setup signal handling for graceful shutdown
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	logger.Info().Str("mountpoint", mnt).Msg("Filesystem mounted successfully")
 

@@ -1,10 +1,12 @@
 package core
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/brettbedarf/webfs/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // NodeIDManager handles mapping between Fuse NodeIDs and core Nodes.
@@ -12,10 +14,11 @@ import (
 // must be called when finished to unlock all associated locks
 type NodeIDManager interface {
 	// AllocateNodeID(node *Node) uint64
-	GetNodeCtx(nodeID uint64) (ctx *NodeContext, ok bool)
+	GetNodeCtx(nodeID uint64) (ctx *NodeContext)
 	// See [FileSystem.LookupChildCtx]
-	GetChildCtx(parentID uint64, name string) (ctx *NodeContext, ok bool)
+	GetChildCtx(parentID uint64, name string) (ctx *NodeContext)
 	ForgetNodeID(id uint64)
+	EnsureNodeID(node *Node) uint64
 }
 
 // FileHandleManager is responsible for mapping between Fuse FileHandles and core Nodes
@@ -29,6 +32,7 @@ type FileHandleManager interface {
 	CloseHandle(fh uint64)
 }
 
+// TODO: these are in cfg but need to define and pass fuse cfg
 const (
 	defaultAttrTimeout  = time.Duration(1) * time.Second  // 1 second
 	defaultEntryTimeout = time.Duration(60) * time.Second // 60 seconds
@@ -39,15 +43,19 @@ const (
 // See https://www.man7.org/linux//man-pages/man4/fuse.4.html
 type FuseRaw struct {
 	fuse.RawFileSystem
-	fs     NodeIDManager
-	server *fuse.Server
+	fs        NodeIDManager
+	nextDirFh atomic.Uint64               // directory file handle counter
+	openDirs  *xsync.Map[uint64, []*Node] // map of open dir Fhs stable-order child slices
+	server    *fuse.Server
 }
 
 func NewFuseRaw(fs FileSystemOperator) *FuseRaw {
 	r := FuseRaw{
 		RawFileSystem: fuse.NewDefaultRawFileSystem(),
 		fs:            fs,
+		openDirs:      xsync.NewMap[uint64, []*Node](),
 	}
+	r.nextDirFh.Store(1)
 	return &r
 }
 
@@ -88,9 +96,9 @@ func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name str
 	logger := util.GetLogger("Fuse.Lookup")
 	logger.Debug().Interface("header", header).Str("name", name).Msg("Lookup called")
 
-	ctx, ok := r.fs.GetChildCtx(header.NodeId, name)
+	ctx := r.fs.GetChildCtx(header.NodeId, name)
 	defer ctx.Close()
-	if !ok {
+	if ctx == nil {
 		logger.Debug().Str("name", name).Msg("Lookup: no child found")
 		return fuse.ENOENT
 	}
@@ -109,18 +117,18 @@ func (r *FuseRaw) Lookup(cancel <-chan struct{}, header *fuse.InHeader, name str
 // I/O errors.
 func (r *FuseRaw) Forget(nodeid, nlookup uint64) {
 	logger := util.GetLogger("Fuse.Forget")
-	logger.Debug().Uint64("nodeid", nodeid).Uint64("nlookup", nlookup).Msg("Forget called")
+	logger.Trace().Uint64("nodeid", nodeid).Uint64("nlookup", nlookup).Msg("Forget called")
 
-	r.fs.ForgetNodeID(nlookup)
+	r.fs.ForgetNodeID(nodeid)
 }
 
 func (r *FuseRaw) GetAttr(cancel <-chan struct{}, header *fuse.GetAttrIn, out *fuse.AttrOut) fuse.Status {
 	logger := util.GetLogger("Fuse.GetAttr")
 	logger.Debug().Interface("header", header).Msg("GetAttr called")
 
-	ctx, ok := r.fs.GetNodeCtx(header.NodeId)
+	ctx := r.fs.GetNodeCtx(header.NodeId)
 	defer ctx.Close()
-	if !ok {
+	if ctx == nil {
 		logger.Debug().Uint64("nodeid", header.NodeId).Msg("No node found")
 		return fuse.ENOENT
 	}
@@ -135,103 +143,133 @@ func (r *FuseRaw) SetAttr(cancel <-chan struct{}, header *fuse.SetAttrIn, out *f
 	return fuse.ENOSYS
 }
 
-func (r *FuseRaw) ReadDir(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.DirEntryList) fuse.Status {
-	logger := util.GetLogger("Fuse.ReadDir")
-	logger.Debug().Interface("input", input).Msg("ReadDir called")
+// Directory Handlers
 
-	return fuse.ENOSYS // Not implemented yet
+func (r *FuseRaw) OpenDir(cancel <-chan struct{}, in *fuse.OpenIn, out *fuse.OpenOut) (status fuse.Status) {
+	logger := util.GetLogger("Fuse.OpenDir")
+	logger.Trace().Interface("in", in).Msg("OpenDir called")
+
+	node := r.fs.GetNodeCtx(in.NodeId)
+	defer node.Close()
+	if node == nil {
+		logger.Debug().Uint64("nodeid", in.NodeId).Msg("No node found")
+		return fuse.ENOENT
+	}
+
+	// Build a snapshot of directory entries
+	children := node.UnsafeChildren()
+
+	// Get a new file handle and store the snapshot
+	fh := r.nextDirFh.Add(1)
+	r.openDirs.Store(fh, children)
+
+	out.Fh = fh
+	return fuse.OK
 }
 
-//	func (fr *FuseRaw) ReadDir(cancel <-chan struct{}, input *ReadIn, out *DirEntryList) Status {
-//		logger := util.GetLogger("readdir")
-//		logger.Debug().
-//			Uint64("fh", input.Fh).
-//			Int("offset", int(input.Offset)).
-//			Msg("ReadDir called")
-//
-//		// Only allow reading the root directory for simplicity TODO:
-//		if input.NodeId != fs.root.Ino {
-//			logger.Error().
-//				Uint64("inode", input.NodeId).
-//				Msg("ReadDir: inode is not root")
-//			return ENOTDIR
-//		}
-//
-//		// Start at the provided offset
-//		startIdx := int(input.Offset)
-//
-//		// First, add "." and ".." entries if we're at the beginning
-//		if startIdx == 0 {
-//			if !out.AddDirEntry(DirEntry{
-//				Name: ".",
-//				Mode: uint32(syscall.S_IFDIR | 0755),
-//				Ino:  FUSE_ROOT_ID,
-//			}) {
-//				// Buffer is full
-//				return OK
-//			}
-//			startIdx++
-//		}
-//
-//		if startIdx == 1 {
-//			if !out.AddDirEntry(DirEntry{
-//				Name: "..",
-//				Mode: uint32(syscall.S_IFDIR | 0755),
-//				// TODO: can we link to the underlying fs parent?
-//				Ino: FUSE_ROOT_ID, // Parent of root is root
-//			}) {
-//				// Buffer is full
-//				return OK
-//			}
-//			startIdx++
-//		}
-//
-//		// Now add file entries
-//		filesLock.RLock()
-//		defer filesLock.RUnlock()
-//
-//		idx := 2 // We've already processed . and ..
-//		for filename := range sourceFiles {
-//			// Skip entries before the requested offset
-//			if idx < startIdx {
-//				idx++
-//				continue
-//			}
-//
-//			// Get inode for this file
-//			inode, exists := inodeMap[filename]
-//			if !exists {
-//				logger.Warn().
-//					Str("filename", filename).
-//					Msg("ReadDir: no inode found for file")
-//				idx++
-//				continue
-//			}
-//
-//			// Get file attributes
-//			// attr := fs.store.GetFileAttr(filename)
-//
-//			// Add this entry to the result
-//			if !out.AddDirEntry(DirEntry{
-//				Name: filename,
-//				Mode: uint32(syscall.S_IFREG | 0444), // Regular file, read-only
-//				Ino:  inode,
-//			}) {
-//				// The buffer is full, but we were able to add some entries.
-//				// We'll return OK and let the kernel call us again with a new offset.
-//				return OK
-//			}
-//
-//			logger.Debug().
-//				Str("filename", filename).
-//				Uint64("inode", inode).
-//				Msg("ReadDir: added entry")
-//
-//			idx++
-//		}
-//
-//			return OK
-//		}
-//
-//				return OK
-//			}
+func (r *FuseRaw) ReadDir(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.DirEntryList) fuse.Status {
+	logger := util.GetLogger("Fuse.ReadDir")
+	logger.Trace().Interface("input", input).Msg("ReadDirPlus called")
+
+	parent := r.fs.GetNodeCtx(input.NodeId)
+	defer parent.Close()
+	if parent == nil {
+		logger.Debug().Uint64("nodeid", input.NodeId).Msg("No parent found")
+		return fuse.ENOENT
+	}
+
+	children, ok := r.openDirs.Load(input.Fh)
+	if !ok {
+		logger.Debug().Uint64("nodeid", input.NodeId).Uint64("fh", input.Fh).Msg("No open FileHandle found")
+		return fuse.ENOENT
+	}
+	if input.Offset >= uint64(len(children)) {
+		return fuse.OK
+	}
+	children = children[input.Offset:] // handle split up reads
+	for i, ch := range children {
+		if ch == nil {
+			continue
+		}
+		// TODO: Can make whether to return deleted nodes/stale reads configurable
+		if ch.IsDel() {
+			children[i] = nil
+			continue
+		}
+		attr := ch.CopyAttr()
+
+		ok := out.AddDirEntry(fuse.DirEntry{
+			Name: ch.Name(),
+			Mode: attr.Mode,
+			Ino:  attr.Ino,
+			// Offset auto-incremented
+		})
+		if !ok {
+			// buffer full; kernel will call again with offset
+			break
+		}
+
+	}
+	logger.Trace().Uint64("fh", input.Fh).Uint64("nodeid", input.NodeId).Interface("out", out).Msg("ReadDirPlus returned")
+	return fuse.OK
+}
+
+func (r *FuseRaw) ReadDirPlus(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.DirEntryList) fuse.Status {
+	logger := util.GetLogger("Fuse.ReadDir")
+	logger.Trace().Interface("input", input).Msg("ReadDirPlus called")
+
+	parent := r.fs.GetNodeCtx(input.NodeId)
+	defer parent.Close()
+	if parent == nil {
+		logger.Debug().Uint64("nodeid", input.NodeId).Msg("No parent found")
+		return fuse.ENOENT
+	}
+
+	children, ok := r.openDirs.Load(input.Fh)
+	if !ok {
+		logger.Debug().Uint64("nodeid", input.NodeId).Uint64("fh", input.Fh).Msg("No open FileHandle found")
+		return fuse.ENOENT
+	}
+	if input.Offset >= uint64(len(children)) {
+		return fuse.OK
+	}
+	children = children[input.Offset:] // handle split up reads
+	for i, ch := range children {
+		if ch == nil {
+			continue
+		}
+		// TODO: Can make whether to return deleted nodes/stale reads or not configurable
+		if ch.IsDel() {
+			children[i] = nil
+			continue
+		}
+		attr := ch.CopyAttr()
+
+		entOut := out.AddDirLookupEntry(fuse.DirEntry{
+			Name: ch.Name(),
+			Mode: attr.Mode,
+			Ino:  attr.Ino,
+			// Offset auto-incremented
+		})
+		if entOut == nil {
+			// buffer full; kernel will call again with offset
+			break
+		}
+
+		entOut.NodeId = r.fs.EnsureNodeID(ch)
+		entOut.Generation = 0 // We aren't recycling NodeIDs with 64-bit counter
+		entOut.Attr = attr
+		entOut.SetEntryTimeout(defaultEntryTimeout)
+		entOut.SetAttrTimeout(defaultAttrTimeout)
+
+	}
+	logger.Trace().Uint64("fh", input.Fh).Uint64("nodeid", input.NodeId).Interface("out", out).Msg("ReadDirPlus returned")
+	return fuse.OK
+}
+
+// ReleaseDir is called when the dir Fh is closed
+func (r *FuseRaw) ReleaseDir(input *fuse.ReleaseIn) {
+	logger := util.GetLogger("Fuse.ReleaseDir")
+	logger.Trace().Interface("input", input).Msg("ReleaseDir called")
+	r.openDirs.Delete(input.Fh) // no panic if key doesn't exist
+}

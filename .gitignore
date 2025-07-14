@@ -2,3 +2,6 @@
 **/logs/**
 **/__pycache__
 .vscode/launch.json
+.lazy.lua
+scratch/**
+__debug_*

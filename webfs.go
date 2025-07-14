@@ -28,11 +28,13 @@ func New(cfg *config.Config) *WebFs {
 func (fs *WebFs) Serve(mountPoint string) error {
 	raw := core.NewFuseRaw(fs.FileSystem)
 	opts := fs.cfg.MountOptions
+	slogger := util.NewLogLogger("FuseServer", util.TraceLevel)
+	slogger.Println("SLOGGER INITIALIZED")
 	srv, err := fuse.NewServer(raw, mountPoint, &fuse.MountOptions{
 		Name:   opts.Name,
 		FsName: opts.FsName,
-		Debug:  opts.Debug,
-		Logger: util.NewLogLogger("FuseServer"),
+		Debug:  fs.cfg.LogLvl == util.TraceLevel,
+		Logger: slogger,
 	})
 	if err != nil {
 		return err

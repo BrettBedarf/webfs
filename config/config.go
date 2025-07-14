@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/brettbedarf/webfs/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -45,14 +46,13 @@ const (
 	// DefaultDirectIO determines whether to bypass page cache for HTTP files
 	DefaultDirectIO = true
 
-	DefaultDebug  = false
+	DefaultLogLvl = util.InfoLevel
 	DefaultFsName = "webfs"
 	DefaultName   = "webfs"
 )
 
 // MountOptions holds high-level settings for mounting.
 type MountOptions struct {
-	Debug  bool   // fuse debug logs
 	FsName string // mount's FsName
 	Name   string // mount's Name
 }
@@ -61,17 +61,19 @@ type MountOptions struct {
 type Config struct {
 	mu sync.RWMutex
 	MountOptions
-	ChunkSize         int // Size of each data chunk in bytes (affects memory usage and transfer efficiency) (Default 1MB)
-	CacheMaxSize      int // Maximum total cache size in bytes (Default 200MB)
-	MaxPrefetchAhead  int // Maximum bytes to prefetch ahead of current read position (Default 100MB)
-	PrefetchBatchSize int // Number of chunks to fetch concurrently in each prefetch batch (Default 3)
+	ChunkSize         int           // Size of each data chunk in bytes (affects memory usage and transfer efficiency) (Default 1MB)
+	CacheMaxSize      int           // Maximum total cache size in bytes (Default 200MB)
+	MaxPrefetchAhead  int           // Maximum bytes to prefetch ahead of current read position (Default 100MB)
+	PrefetchBatchSize int           // Number of chunks to fetch concurrently in each prefetch batch (Default 3)
+	LogLvl            util.LogLevel // Verbosity level for logs
+
 	// NOTE: Low-level FUSE config (strongly recommend defaults unless you really know what you're doing):
 
 	MaxFH        int     // Maximum file handle value for FUSE compatibility (Default 2147483647)
 	MaxWrite     int     // Maximum write size per FUSE request (Default 1MB)
 	AttrTimeout  float64 // Attribute cache timeout in seconds (Default 1.0)
-	EntryTimeout float64 // Directory entry cache timeout in seconds (Default 1.0)
-	DirectIO     bool    // Whether to bypass page cache for HTTP files (Default true)
+	EntryTimeout float64 // Directory entry (dentry) cache timeout in seconds (Default 1.0) //TODO: bad timeout default
+	DirectIO     bool    // Whether to bypass kernel page cache for files (Default true)
 }
 
 // NumCacheChunks returns the number of cache chunks derived from CacheMaxSize / ChunkSize.
@@ -86,28 +88,28 @@ func (c *Config) NumCacheChunks() int {
 // ConfigOverride uses pointer fields to distinguish between unset and zero values
 // when loading partial configuration. See [Config] for field descriptions.
 type ConfigOverride struct {
-	ChunkSize         *int     `yaml:"chunk_size,omitempty" json:"chunk_size,omitempty"`
-	CacheMaxSize      *int     `yaml:"cache_max_size,omitempty" json:"cache_max_size,omitempty"`
-	MaxPrefetchAhead  *int     `yaml:"max_prefetch_ahead,omitempty" json:"max_prefetch_ahead,omitempty"`
-	PrefetchBatchSize *int     `yaml:"prefetch_batch_size,omitempty" json:"prefetch_batch_size,omitempty"`
-	MaxFH             *int     `yaml:"max_fh,omitempty" json:"max_fh,omitempty"`
-	MaxWrite          *int     `yaml:"max_write,omitempty" json:"max_write,omitempty"`
-	AttrTimeout       *float64 `yaml:"attr_timeout,omitempty" json:"attr_timeout,omitempty"`
-	EntryTimeout      *float64 `yaml:"entry_timeout,omitempty" json:"entry_timeout,omitempty"`
-	DirectIO          *bool    `yaml:"direct_io,omitempty" json:"direct_io,omitempty"`
-	Debug             *bool    `yaml:"debug,omitempty" json:"debug,omitempty"`
-	FsName            *string  `yaml:"fs_name,omitempty" json:"fs_name,omitempty"`
-	Name              *string  `yaml:"name,omitempty" json:"name,omitempty"`
+	ChunkSize         *int           `yaml:"chunk_size,omitempty" json:"chunk_size,omitempty"`
+	CacheMaxSize      *int           `yaml:"cache_max_size,omitempty" json:"cache_max_size,omitempty"`
+	MaxPrefetchAhead  *int           `yaml:"max_prefetch_ahead,omitempty" json:"max_prefetch_ahead,omitempty"`
+	PrefetchBatchSize *int           `yaml:"prefetch_batch_size,omitempty" json:"prefetch_batch_size,omitempty"`
+	MaxFH             *int           `yaml:"max_fh,omitempty" json:"max_fh,omitempty"`
+	MaxWrite          *int           `yaml:"max_write,omitempty" json:"max_write,omitempty"`
+	AttrTimeout       *float64       `yaml:"attr_timeout,omitempty" json:"attr_timeout,omitempty"`
+	EntryTimeout      *float64       `yaml:"entry_timeout,omitempty" json:"entry_timeout,omitempty"`
+	DirectIO          *bool          `yaml:"direct_io,omitempty" json:"direct_io,omitempty"`
+	LogLvl            *util.LogLevel `yaml:"verbose,omitempty" json:"verbose,omitempty"`
+	FsName            *string        `yaml:"fs_name,omitempty" json:"fs_name,omitempty"`
+	Name              *string        `yaml:"name,omitempty" json:"name,omitempty"`
 }
 
 // NewConfig creates a new Config with all default values.
 func NewConfig(override *ConfigOverride) *Config {
 	cfg := &Config{
 		MountOptions: MountOptions{
-			Debug:  DefaultDebug,
 			FsName: DefaultFsName,
 			Name:   DefaultName,
 		},
+		LogLvl:            DefaultLogLvl,
 		ChunkSize:         DefaultChunkSize,
 		CacheMaxSize:      DefaultCacheMaxSize,
 		MaxPrefetchAhead:  DefaultMaxPrefetchAhead,
@@ -157,8 +159,8 @@ func (c *Config) Merge(override *ConfigOverride) {
 	if override.DirectIO != nil {
 		c.DirectIO = *override.DirectIO
 	}
-	if override.Debug != nil {
-		c.Debug = *override.Debug
+	if override.LogLvl != nil {
+		c.LogLvl = *override.LogLvl
 	}
 	if override.FsName != nil {
 		c.FsName = *override.FsName

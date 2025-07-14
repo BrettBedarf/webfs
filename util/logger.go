@@ -1,23 +1,23 @@
 package util
 
 import (
-	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	stdlog "log"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	slogzerolog "github.com/samber/slog-zerolog/v2"
 )
 
 // LogLevel represents available log levels
 type LogLevel = int
 
+// Log levels
 const (
-	// Log levels
-	DebugLevel LogLevel = iota
+	TraceLevel LogLevel = iota
+	DebugLevel
 	InfoLevel
 	WarnLevel
 	ErrorLevel
@@ -30,6 +30,8 @@ func InitializeLogger(level LogLevel) {
 
 	// Set global log level based on configuration
 	switch level {
+	case TraceLevel:
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	case DebugLevel:
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	case InfoLevel:
@@ -47,7 +49,7 @@ func InitializeLogger(level LogLevel) {
 
 	// Set global logger
 	ctx := zerolog.New(output).With().Timestamp()
-	if level == DebugLevel {
+	if level == TraceLevel {
 		ctx = ctx.Caller()
 	}
 	log.Logger = ctx.Logger()
@@ -59,31 +61,44 @@ func GetLogger(component string) zerolog.Logger {
 	return log.With().Str("component", component).Logger()
 }
 
-func NewSlogHandler(component string, lvl slog.Level) slog.Handler {
-	opt := slogzerolog.Option{Level: lvl}
-
-	zlog := log.With().Str("component", component).Logger()
-	opt.Logger = &zlog
-
-	return opt.NewZerologHandler()
+// zerologWriter wraps zerolog to implement io.Writer for stdlog
+type zerologWriter struct {
+	logger zerolog.Logger
+	level  zerolog.Level
 }
 
-func NewLogLogger(component string) *stdlog.Logger {
-	zlvl := zerolog.GlobalLevel()
-	var slvl slog.Level
-	switch zlvl {
-	case zerolog.DebugLevel:
-		slvl = slog.LevelDebug
-	case zerolog.InfoLevel:
-		slvl = slog.LevelInfo
-	case zerolog.WarnLevel:
-		slvl = slog.LevelWarn
-	case zerolog.ErrorLevel:
-		slvl = slog.LevelError
-	default:
-		slvl = slog.LevelInfo
+func (w zerologWriter) Write(p []byte) (n int, err error) {
+	msg := strings.TrimSpace(string(p))
+	// Remove stdlog prefix if present (timestamp and flags)
+	if idx := strings.LastIndex(msg, ": "); idx != -1 && idx < len(msg)-2 {
+		msg = msg[idx+2:]
 	}
-	handler := NewSlogHandler(component, slvl)
+	w.logger.WithLevel(w.level).Msg(msg)
 
-	return slog.NewLogLogger(handler, slog.LevelInfo)
+	return len(p), nil
+}
+
+// NewLogLogger returns a configured stdlog.Logger that routes to zerolog
+// TODO: this Writer technique doesn't pass down context i.e. call location
+func NewLogLogger(component string, lvl LogLevel) *stdlog.Logger {
+	var zerologLevel zerolog.Level
+	switch lvl {
+	case TraceLevel:
+		zerologLevel = zerolog.TraceLevel
+	case DebugLevel:
+		zerologLevel = zerolog.DebugLevel
+	case InfoLevel:
+		zerologLevel = zerolog.InfoLevel
+	case WarnLevel:
+		zerologLevel = zerolog.WarnLevel
+	case ErrorLevel:
+		zerologLevel = zerolog.ErrorLevel
+	default:
+		zerologLevel = zerolog.InfoLevel
+	}
+
+	logger := log.With().Str("component", component).Logger()
+	writer := zerologWriter{logger: logger, level: zerologLevel}
+
+	return stdlog.New(writer, "", 0)
 }

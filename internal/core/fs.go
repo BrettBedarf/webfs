@@ -111,10 +111,7 @@ func (fs *FileSystem) AddDirNode(req *api.DirCreateRequest) (*Node, error) {
 	// Traverse the path until we get to existing dir and make
 	// any missing along the way
 	for _, name := range dSplit {
-		cur.mu.RLock()
-		prev := cur // tmp so we can unlock after re-assigning cur
-
-		if child, ok := cur.children[name]; ok {
+		if child, ok := cur.children.Load(name); ok {
 			cur = child
 		} else {
 			// Make new dir
@@ -123,11 +120,10 @@ func (fs *FileSystem) AddDirNode(req *api.DirCreateRequest) (*Node, error) {
 			inode := NewInode(attr)
 			node := NewNode(name, inode)
 
-			cur.AddChild(node) // cur node will lock & unlock itself
+			cur.AddChild(node)
 			newCnt++
 			cur = node
 		}
-		prev.mu.RUnlock()
 	}
 	if newCnt > 0 {
 		logger.Info().Str("path", req.Path).Msg(fmt.Sprintf("Created %d new dir(s)", newCnt))
@@ -148,21 +144,30 @@ func (fs *FileSystem) AddDirNode(req *api.DirCreateRequest) (*Node, error) {
 //
 
 // GetNodeCtx returns a locked NodeContext with its Close() wired up
-func (fs *FileSystem) GetNodeCtx(nodeID uint64) (ctx *NodeContext, ok bool) {
+// If the node does not exist, returns nil
+func (fs *FileSystem) GetNodeCtx(nodeID uint64) (ctx *NodeContext) {
+	logger := util.GetLogger("GetNodeCtx")
+	logger.Trace().Uint64("nodeID", nodeID).Msg("GetNodeCtx called")
+
 	if node, ok := fs.nodeRegistry.Load(nodeID); ok {
 		node.mu.RLock()
 		ctx = &NodeContext{node: node}
 		ctx.AddClose(node.mu.RUnlock)
-		return ctx, true
+		return ctx
 	}
+	logger.Debug().Uint64("nodeID", nodeID).Msg("No node found")
 	return
 }
 
 // ForgetNodeID removes the registry NodeID entry
 func (fs *FileSystem) ForgetNodeID(id uint64) {
-	node, ok := fs.GetNodeCtx(id)
+	logger := util.GetLogger("FS.ForgetNodeID")
+	logger.Trace().Uint64("id", id).Msg("ForgetNodeID called")
+
+	node := fs.GetNodeCtx(id)
 	defer node.Close()
-	if !ok {
+	if node == nil {
+		logger.Debug().Uint64("id", id).Msg("No node found")
 		return
 	}
 	fs.nodeRegistry.Delete(id)
@@ -171,24 +176,28 @@ func (fs *FileSystem) ForgetNodeID(id uint64) {
 // GetChildCtx finds a child by name and returns a locked NodeContext
 // with its Close() wired up.
 // A NodeID will be allocated for the child if it does not already exist.
-// If the parent or child do not exist, returns (nil, false)
+// If the parent or child do not exist, returns nil
 //
 // Caller is responsible for closing the context when done `defer ctx.Close()`.
-func (fs *FileSystem) GetChildCtx(parentID uint64, name string) (ctx *NodeContext, ok bool) {
+func (fs *FileSystem) GetChildCtx(parentID uint64, name string) (ctx *NodeContext) {
+	logger := util.GetLogger("FS.GetChildCtx")
+	logger.Trace().Uint64("parentID", parentID).Str("name", name).Msg("GetChildCtx called")
+
 	parent, ok := fs.nodeRegistry.Load(parentID)
 	if !ok {
+		logger.Debug().Uint64("parentID", parentID).Str("name", name).Msg("No parent found")
 		return
 	}
 	if child, ok := parent.GetChild(name); ok { // parent lock immediately releases
-		fs.ensureNodeID(child)
-		return NewNodeContext(child), true
+		fs.EnsureNodeID(child)
+		return NewNodeContext(child)
 	}
 	return
 }
 
-// retrieves or allocates & sets NodeID; safe with or without held locks.
+// EnsureNodeID retrieves or allocates & sets NodeID; safe with or without held locks.
 // returns NodeID
-func (fs *FileSystem) ensureNodeID(n *Node) uint64 {
+func (fs *FileSystem) EnsureNodeID(n *Node) uint64 {
 	// fast path
 	if id := n.nodeID.Load(); id != 0 {
 		return id

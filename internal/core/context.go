@@ -3,6 +3,8 @@ package core
 import "github.com/hanwen/go-fuse/v2/fuse"
 
 // NodeContext wraps a locked [Node] (plus any upstream locks).
+// The Node is locked with parentMu.RLock() to protect access to parent and other fields.
+// Children access within the context uses lock-free xsync.Map operations.
 // Calling NodeContext.Close() unwinds all unlocking/cleanup callbacks in reverse order.
 // Do NOT invoke any locking methods on the raw Node or its embedded Inode while
 // this context is active. Use only the safe snapshot and update helpers below.
@@ -16,12 +18,17 @@ type NodeContext struct {
 	inodeWriteLocked bool // tracks if Inode write-lock is held
 }
 
-// NewNodeContext RLocks the Node returns a new NodeContext for a given Node
+// NewNodeContext RLocks the Node and returns a new NodeContext for safe access
 func NewNodeContext(node *Node) *NodeContext {
 	node.mu.RLock()
 	ctx := &NodeContext{node: node}
 	ctx.AddClose(node.mu.RUnlock)
 	return ctx
+}
+
+// Name returns the node's immutable Name.
+func (ctx *NodeContext) Name() string {
+	return ctx.node.name
 }
 
 func (ctx *NodeContext) NodeID() uint64 {
@@ -41,18 +48,37 @@ func (ctx *NodeContext) UpdateAttr(fn func(attr *fuse.Attr)) {
 	fn(ctx.node.fuseAttr)
 }
 
-// Name returns the node's immutable Name.
-func (ctx *NodeContext) Name() string {
-	return ctx.node.name
+// Children returns a slice of locked child node contexts
+func (ctx *NodeContext) Children() []*NodeContext {
+	children := make([]*NodeContext, 0, ctx.node.children.Size())
+	ctx.node.children.Range(func(_ string, ch *Node) bool {
+		children = append(children, NewNodeContext(ch))
+		return true
+	})
+	return children
 }
 
-// Children returns child names under the existing node RLock.
-func (ctx *NodeContext) Children() []string {
-	names := make([]string, 0, len(ctx.node.children))
-	for name := range ctx.node.children {
-		names = append(names, name)
-	}
-	return names
+// UnsafeChildren returns pointers to the unlocked underlying child nodes in a new slice.
+// Consumers are responsible to all lock/unlock mechanics.
+func (ctx *NodeContext) UnsafeChildren() []*Node {
+	children := make([]*Node, 0, ctx.node.children.Size())
+	ctx.node.children.Range(func(_ string, ch *Node) bool {
+		children = append(children, ch)
+		return true
+	})
+	return children
+}
+
+// IterChildren iterates over child nodes with lock-free access within the locked context
+// Each child node is read-locked before the callback is invoked and unlocked
+// automatically after the callback returns.
+func (ctx *NodeContext) IterChildren(fn func(ctx *NodeContext)) {
+	ctx.node.children.Range(func(_ string, child *Node) bool {
+		nc := NewNodeContext(child)
+		fn(nc)
+		nc.Close()
+		return true
+	})
 }
 
 // HardLinkCount returns the number of hard links (Nlink).
