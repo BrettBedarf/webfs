@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/brettbedarf/webfs"
+	"github.com/brettbedarf/webfs/internal/util"
 )
 
 type HTTPMethod = string
@@ -20,6 +21,21 @@ const (
 	HTTPMethodPatch  HTTPMethod = "PATCH"
 	HTTPMethodDelete HTTPMethod = "DELETE"
 )
+
+func RegisterHTTP() {
+	Register("http", func(raw []byte) (webfs.AdapterProvider, error) {
+		var config HTTPSource
+		if err := json.Unmarshal(raw, &config); err != nil {
+			return nil, err
+		}
+		return &config, nil
+	})
+}
+
+// Adapter returns a concrete [HTTPAdapter] that implements [webfs.FileAdapter] for the source
+func (h *HTTPSource) Adapter() webfs.FileAdapter {
+	return &HTTPAdapter{cfg: h, log: util.GetLogger("http-adapter")}
+}
 
 // HTTPSource contains http-specific source request fields
 type HTTPSource struct {
@@ -34,41 +50,25 @@ type HTTPSource struct {
 	// MaxRedirects *int              `json:"maxRedirects,omitempty"`
 }
 
-func RegisterHTTP() {
-	Register("http", func(raw []byte) (webfs.AdapterProvider, error) {
-		var config HTTPSource
-		if err := json.Unmarshal(raw, &config); err != nil {
-			return nil, err
-		}
-		return &config, nil
-	})
-}
-
-func (h *HTTPSource) Adapter() webfs.FileAdapter {
-	return &HTTPAdapter{config: h}
-}
-
 // HTTPAdapter implements [webfs.FileAdapter] for HTTP sources
 type HTTPAdapter struct {
-	config *HTTPSource
+	webfs.FileAdapter
+	cfg *HTTPSource
+	log util.Logger
 }
 
 func (h *HTTPAdapter) newRequest(ctx context.Context, method HTTPMethod) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, method, h.config.URL, nil)
+	req, err := http.NewRequestWithContext(ctx, method, h.cfg.URL, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	// Add custom headers
-	for k, v := range h.config.Headers {
+	for k, v := range h.cfg.Headers {
 		req.Header.Set(k, v)
 	}
 
 	return req, nil
-}
-
-func (h *HTTPAdapter) Stat(ctx context.Context) error {
-	return fmt.Errorf("Stat not implemented")
 }
 
 func (h *HTTPAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
@@ -105,7 +105,7 @@ func (h *HTTPAdapter) Size(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	h.closeResp(resp)
 
 	return resp.ContentLength, nil
 }
@@ -120,14 +120,58 @@ func (h *HTTPAdapter) Exists(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	defer resp.Body.Close()
-
+	h.closeResp(resp)
 	return resp.StatusCode >= 200 && resp.StatusCode < 300, nil
 }
 
+func (h *HTTPAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) {
+	req, err := h.newRequest(ctx, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	h.closeResp(resp)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	meta := &webfs.FileMetadata{
+		Size: resp.ContentLength,
+	}
+
+	// Parse Last-Modified header
+	if lastMod := resp.Header.Get("Last-Modified"); lastMod != "" {
+		if t, err := http.ParseTime(lastMod); err == nil {
+			meta.LastModified = &t
+		}
+	}
+
+	// ETag as version identifier
+	if etag := resp.Header.Get("ETag"); etag != "" {
+		meta.Version = etag
+	}
+
+	return meta, nil
+}
+
 func (h *HTTPAdapter) getMethod() HTTPMethod {
-	if h.config.Method != nil {
-		return *h.config.Method
+	if h.cfg.Method != nil {
+		return *h.cfg.Method
 	}
 	return HTTPMethodGet
+}
+
+func (h *HTTPAdapter) closeResp(resp *http.Response) {
+	if resp == nil {
+		return
+	}
+	if err := resp.Body.Close(); err != nil {
+		h.log.Error().Err(err).Interface("resp", resp).Interface("cfg", h.cfg).
+			Msg("Failed to close response body")
+	}
 }

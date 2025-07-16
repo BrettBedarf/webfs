@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type Logger = zerolog.Logger
+
 // LogLevel represents available log levels
 type LogLevel = int
 
