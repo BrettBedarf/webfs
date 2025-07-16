@@ -11,36 +11,44 @@ import (
 
 var (
 	mu        sync.RWMutex
-	factories = map[string]func([]byte) (webfs.AdapterProvider, error){}
+	providers = map[string]webfs.AdapterProvider{}
 )
 
 // Register ties a JSON‐raw factory to a “type” key and should be called for each
 // adapter type during app init
-func Register(adapterType string, unmarshal func(raw []byte) (webfs.AdapterProvider, error)) {
+func Register(adapterType string, provider webfs.AdapterProvider) {
 	mu.Lock()
-	factories[adapterType] = unmarshal
+	providers[adapterType] = provider
 	mu.Unlock()
 }
 
-// GetProvider picks the right factory based on the "type" field.
+// GetProvider returns the provider for the given adapter type
+func GetProvider(adapterType string) (webfs.AdapterProvider, error) {
+	mu.RLock()
+	provider, ok := providers[adapterType]
+	mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("no provider for %q", adapterType)
+	}
+	return provider, nil
+}
+
+// GetAdapter picks the right provider based on the "type" field and creates an adapter.
 // All expected source adapter types should be registered with [Register]
 // before calling this function.
-func GetProvider(raw []byte) (webfs.AdapterProvider, error) {
-	logger := util.GetLogger("adapters.GetFactory")
+func GetAdapter(rawCfg []byte) (webfs.FileAdapter, error) {
+	logger := util.GetLogger("GetAdapter")
 	var meta struct {
 		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(raw, &meta); err != nil {
+	if err := json.Unmarshal(rawCfg, &meta); err != nil {
+		logger.Debug().Err(err).Str("config", string(rawCfg)).Msg("Failed to get adapter type")
+		return nil, err
+	}
+	provider, err := GetProvider(meta.Type)
+	if err != nil {
 		logger.Error().Err(err)
 		return nil, err
 	}
-	mu.RLock()
-	f, ok := factories[meta.Type]
-	mu.RUnlock()
-	if !ok {
-		err := fmt.Errorf("no factory for %q", meta.Type)
-		logger.Error().Err(err)
-		return nil, err
-	}
-	return f(raw)
+	return provider.Adapter(rawCfg)
 }

@@ -11,6 +11,8 @@ import (
 // Instances are 1:1 with the underlying filesystem Node and as such only responsible for
 // managing data from a single file
 type FileAdapter interface {
+	// TODO: Adapters should define their capabilities
+
 	// Opens the file and returns a Reader
 	Open(ctx context.Context) (io.ReadCloser, error)
 
@@ -22,12 +24,6 @@ type FileAdapter interface {
 	// Returns number of bytes written and any error
 	Write(ctx context.Context, offset int64, p []byte) (int, error)
 
-	// Returns the size of the file
-	Size(ctx context.Context) (int64, error)
-
-	// Checks if the file exists
-	Exists(ctx context.Context) (bool, error)
-
 	GetMeta(ctx context.Context) (*FileMetadata, error)
 
 	// TODO: Close()/Cleanup()/Down() etc to handle cleanup if applicable
@@ -38,14 +34,20 @@ type FileAdapter interface {
 // generated from request's SourceConfig.
 // Implementations should handle resource management (connection pooling etc) for its adapters
 type AdapterProvider interface {
-	Adapter() FileAdapter
+	Adapter(raw []byte) (FileAdapter, error)
 }
 
 // FileSource is a container for concrete adapter implementations that can be
 // passed to the core filesystem
 type FileSource struct {
-	AdapterProvider
-	Priority int `json:"priority,omitempty"` // Lower number = higher priority
+	Provider AdapterProvider
+	Config   []byte // Raw JSON config
+	Priority int    `json:"priority,omitempty"` // Lower number = higher priority
+}
+
+// Adapter creates a FileAdapter from this source's configuration
+func (fs *FileSource) Adapter() (FileAdapter, error) {
+	return fs.Provider.Adapter(fs.Config)
 }
 
 // FileMetadata contains standardized metadata across all adapter types

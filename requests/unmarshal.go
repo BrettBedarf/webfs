@@ -8,6 +8,7 @@ import (
 
 	"github.com/brettbedarf/webfs"
 	"github.com/brettbedarf/webfs/adapters"
+	"github.com/brettbedarf/webfs/internal/util"
 )
 
 // GetNodeType extracts the node type from JSON without full unmarshaling
@@ -56,17 +57,31 @@ func UnmarshalDirRequest(data []byte) (*webfs.DirCreateRequest, error) {
 
 // Helper function to process sources array
 func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]webfs.FileSource, error) {
+	logger := util.GetLogger("requests.unmarshalSources")
 	// Extract raw sources array from JSON for adapter registry
 	var rawMessage struct {
 		Sources []json.RawMessage `json:"sources"`
 	}
-	json.Unmarshal(rawData, &rawMessage)
+	if err := json.Unmarshal(rawData, &rawMessage); err != nil {
+		logger.Error().Err(err).Str("data", string(rawData)).Msg("Failed to parse sources")
+		return nil, err
+	}
 
 	var sources []webfs.FileSource
 	for i, rawSource := range rawMessage.Sources {
-		// Use adapter registry to get provider
-		provider, err := adapters.GetProvider(rawSource)
+		// Extract type to get provider
+		var meta struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(rawSource, &meta); err != nil {
+			return nil, err
+		}
+
+		// Get provider from registry
+		provider, err := adapters.GetProvider(meta.Type)
 		if err != nil {
+			logger.Error().Err(err).Str("type", meta.Type).Str("source", string(rawSource)).
+				Msg("Failed to get adapter provider")
 			return nil, err
 		}
 
@@ -77,8 +92,9 @@ func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]webfs.Fil
 		}
 
 		sources = append(sources, webfs.FileSource{
-			AdapterProvider: provider,
-			Priority:        priority,
+			Provider: provider,
+			Config:   rawSource,
+			Priority: priority,
 		})
 	}
 

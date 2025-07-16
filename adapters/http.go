@@ -23,18 +23,24 @@ const (
 )
 
 func RegisterHTTP() {
-	Register("http", func(raw []byte) (webfs.AdapterProvider, error) {
-		var config HTTPSource
-		if err := json.Unmarshal(raw, &config); err != nil {
-			return nil, err
-		}
-		return &config, nil
-	})
+	provider := &HTTPProvider{
+		// Can add shared resources here later (HTTP client, connection pool, etc.)
+	}
+	Register("http", provider)
 }
 
-// Adapter returns a concrete [HTTPAdapter] that implements [webfs.FileAdapter] for the source
-func (h *HTTPSource) Adapter() webfs.FileAdapter {
-	return &HTTPAdapter{cfg: h, log: util.GetLogger("http-adapter")}
+// HTTPProvider implements webfs.AdapterProvider for HTTP sources
+type HTTPProvider struct {
+	// Future: shared HTTP client, connection pool, etc.
+}
+
+// Adapter creates a new HTTPAdapter from raw JSON configuration
+func (p *HTTPProvider) Adapter(raw []byte) (webfs.FileAdapter, error) {
+	var config HTTPSource
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, err
+	}
+	return &HTTPAdapter{cfg: &config, log: util.GetLogger("http-adapter")}, nil
 }
 
 // HTTPSource contains http-specific source request fields
@@ -93,35 +99,6 @@ func (h *HTTPAdapter) Read(ctx context.Context, offset int64, p []byte) (int, er
 func (h *HTTPAdapter) Write(ctx context.Context, offset int64, p []byte) (int, error) {
 	// HTTP sources are read-only to start
 	return 0, fmt.Errorf("HTTP sources are read-only")
-}
-
-func (h *HTTPAdapter) Size(ctx context.Context) (int64, error) {
-	req, err := h.newRequest(ctx, "HEAD")
-	if err != nil {
-		return 0, err
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	h.closeResp(resp)
-
-	return resp.ContentLength, nil
-}
-
-func (h *HTTPAdapter) Exists(ctx context.Context) (bool, error) {
-	req, err := h.newRequest(ctx, "HEAD")
-	if err != nil {
-		return false, err
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false, nil
-	}
-	h.closeResp(resp)
-	return resp.StatusCode >= 200 && resp.StatusCode < 300, nil
 }
 
 func (h *HTTPAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) {
