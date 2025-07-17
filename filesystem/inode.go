@@ -62,8 +62,8 @@ func (n *Inode) RefreshMeta() {
 		return
 	}
 	go func() {
-		ctx := context.Background()
-		err := n.adapterPool.tryOperation(ctx, func(ctx context.Context, adapter *inodeAdapter) error {
+		opsCtx := context.Background()
+		err := n.adapterPool.tryOperation(opsCtx, func(ctx context.Context, adapter *inodeAdapter) error {
 			meta, err := adapter.GetMeta(ctx)
 			if err != nil {
 				return err

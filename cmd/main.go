@@ -27,7 +27,8 @@ func main() {
 	// configPath := flag.String("config", "", "Path to config file")
 	flag.StringVar(&nodesDef, "nodes", "", "Path to nodes def file")
 	flag.StringVar(&nodesDef, "n", "", "--nodes (shorthand)")
-	flag.BoolVar(&umount, "umount", false, "Unmount the fs first if needed before mounting again. Useful for debuggers that don't exit properly.")
+	flag.BoolVar(&umount, "umount", false,
+		"Unmount the fs first if needed before mounting again. Useful for debuggers that don't exit properly.")
 	flag.BoolVar(&umount, "u", false, "--umount (shorthand)")
 	flag.IntVar(&verbose, "verbose", 3, "Log verbosity level between 1 (error) and 5 (trace). Default is 3 (info).")
 	flag.IntVar(&verbose, "v", 3, "--verbose (shorthand)")
@@ -52,10 +53,10 @@ func main() {
 		logger.Fatal().Msg("Mount point not specified; it must be passed as the argument")
 	}
 	// Try unmount if requested
-	if umount {
-		// send cli command
+	if umount { // send cli command
 		cmd := exec.Command("fusermount", "-u", mnt)
-		cmd.Run() // we ignore error here if not already mounted
+		// we ignore error here if not already mounted
+		cmd.Run() // nolint:errcheck
 	}
 	// Register all built-in adapters
 	adapters.RegisterBuiltins()
