@@ -1,6 +1,10 @@
 package filesystem
 
-import "github.com/hanwen/go-fuse/v2/fuse"
+import (
+	"context"
+
+	"github.com/hanwen/go-fuse/v2/fuse"
+)
 
 // NodeContext wraps a locked [Node] (plus any upstream locks).
 // Calling NodeContext.Close() unwinds all unlocking/cleanup callbacks in reverse order.
@@ -86,6 +90,16 @@ func (ctx *NodeContext) HardLinkCount() uint64 {
 // AddClose pushes a cleanup callback (e.g., unlock) onto the end of the stack.
 func (ctx *NodeContext) AddClose(fn func()) {
 	ctx.closeFns = append(ctx.closeFns, fn)
+}
+
+// Read reads data from the node's inode with automatic caching and failover
+func (ctx *NodeContext) Read(reqCtx context.Context, offset int64, size int64) ([]byte, error) {
+	return ctx.node.Read(reqCtx, offset, size)
+}
+
+// IsCached returns true if the specified range is cached in the node's inode
+func (ctx *NodeContext) IsCached(offset int64, size int64) bool {
+	return ctx.node.IsCached(offset, size)
 }
 
 // Close unwinds all cleanup callbacks in reverse order.

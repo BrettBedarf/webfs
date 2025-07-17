@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -215,6 +216,17 @@ func (fs *FileSystem) EnsureNodeID(n *Node) uint64 {
 	}
 	// someone else won the race, load the real value
 	return n.nodeID.Load()
+}
+
+// Read reads data from a node by nodeID with automatic caching and failover
+func (fs *FileSystem) Read(ctx context.Context, nodeID uint64, offset int64, size int64) ([]byte, error) {
+	nodeCtx := fs.GetNodeCtx(nodeID)
+	if nodeCtx == nil {
+		return nil, fmt.Errorf("node %d not found", nodeID)
+	}
+	defer nodeCtx.Close()
+
+	return nodeCtx.Read(ctx, offset, size)
 }
 
 // newDefaultAttr returns the default attributes for a new node
