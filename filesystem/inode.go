@@ -19,16 +19,34 @@ type Inode struct {
 	adapterPool *adapterPool
 	hLinks      []*Node // Hard links to this inode
 	sLinks      []*Node // Symbolic links to this inode
-	mu          sync.RWMutex
-	log         util.Logger
+
+	// Data cache - stores actual file content blocks
+	dataCache *dataCache
+
+	mu  sync.RWMutex
+	log util.Logger
+}
+
+// CachedRange represents a contiguous range of cached data
+type CachedRange struct {
+	start int64
+	end   int64 // exclusive
+	data  []byte
+}
+
+// dataCache manages cached byte ranges for an inode
+type dataCache struct {
+	ranges []CachedRange
+	mu     sync.RWMutex
 }
 
 func NewInode(attr *fuse.Attr, adapters []webfs.FileAdapter) *Inode {
 	return &Inode{
 		attr:        attr,
 		adapterPool: newAdapterPool(adapters),
+		dataCache:   newDataCache(),
 		hLinks:      make([]*Node, 0, 1), // 1 init capacity since most inodes expected to have only themselves
-		sLinks:      make([]*Node, 0),    // 0 init capacity since assumed low usage
+		sLinks:      make([]*Node, 0),
 		log:         util.GetLogger("Inode").With().Uint64("ino", attr.Ino).Logger(),
 	}
 }
@@ -82,24 +100,57 @@ func (n *Inode) RefreshMeta() {
 	}()
 }
 
-// Read reads data from the inode using the adapter pool with automatic failover
+// Read reads data from the inode, using cache when available or fetching from adapters
 func (n *Inode) Read(ctx context.Context, offset int64, size int64) ([]byte, error) {
 	if n.adapterPool == nil {
 		return nil, fmt.Errorf("adapter pool not set")
 	}
-	return nil, fmt.Errorf("Read not implemented")
-	// var data []byte
-	// err := n.adapterPool.tryOperation(ctx, func(ctx context.Context, adapter *inodeAdapter) error {
-	// 	var err error
-	// 	data, err = adapter.Read(ctx, offset, size)
-	// 	return err
-	// })
-	// if err != nil {
-	// 	n.log.Error().Err(err).Msg("Failed to read with all adapters")
-	// 	return nil, err
-	// }
-	//
-	// return data, nil
+
+	// Check cache first
+	if cached := n.dataCache.get(offset, size); cached != nil {
+		n.log.Trace().Int64("offset", offset).Int64("size", size).Msg("Cache hit")
+		return cached, nil
+	}
+
+	// Cache miss - fetch from adapter
+	n.log.Trace().Int64("offset", offset).Int64("size", size).Msg("Cache miss - fetching from adapter")
+
+	// Allocate buffer for adapter to read into
+	buf := make([]byte, size)
+	var bytesRead int
+
+	err := n.adapterPool.tryOperation(ctx, func(ctx context.Context, adapter *inodeAdapter) error {
+		var err error
+		bytesRead, err = adapter.Read(ctx, offset, size, buf)
+		return err
+	})
+	if err != nil {
+		n.log.Error().Err(err).Msg("Failed to read with all adapters")
+		return nil, err
+	}
+
+	// Trim buffer to actual bytes read
+	data := buf[:bytesRead]
+
+	// Cache the fetched data
+	n.dataCache.store(offset, data)
+
+	return data, nil
+}
+
+// IsCached returns true if the specified range is fully cached
+func (n *Inode) IsCached(offset int64, size int64) bool {
+	return n.dataCache.isCached(offset, size)
+}
+
+// GetCachedRanges returns all currently cached ranges (for debugging/monitoring)
+func (n *Inode) GetCachedRanges() []CachedRange {
+	return n.dataCache.getRanges()
+}
+
+// ClearCache clears all cached data
+func (n *Inode) ClearCache() {
+	n.dataCache.clear()
 }
 
 type inodeAdapter struct {
@@ -225,4 +276,86 @@ func (a *inodeAdapter) shouldRetry() bool {
 	}
 
 	return time.Since(a.lastAttempt) > time.Duration(failCount)*time.Second
+}
+
+// newDataCache creates a new empty data cache
+func newDataCache() *dataCache {
+	return &dataCache{
+		ranges: make([]CachedRange, 0),
+	}
+}
+
+// get returns cached data for the specified range, or nil if not fully cached
+func (dc *dataCache) get(offset int64, size int64) []byte {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	end := offset + size
+
+	// Look for a range that contains the entire requested range
+	for _, r := range dc.ranges {
+		if r.start <= offset && r.end >= end {
+			// Found containing range, extract the requested slice
+			startIdx := offset - r.start
+			endIdx := startIdx + size
+			return r.data[startIdx:endIdx]
+		}
+	}
+
+	return nil
+}
+
+// store caches data starting at the given offset
+func (dc *dataCache) store(offset int64, data []byte) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
+	if len(data) == 0 {
+		return
+	}
+
+	newRange := CachedRange{
+		start: offset,
+		end:   offset + int64(len(data)),
+		data:  make([]byte, len(data)),
+	}
+	copy(newRange.data, data)
+
+	// TODO: merge overlapping ranges, handle fragmentation
+	// For now, just append (basic implementation)
+	dc.ranges = append(dc.ranges, newRange)
+}
+
+// isCached returns true if the specified range is fully cached
+func (dc *dataCache) isCached(offset int64, size int64) bool {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	end := offset + size
+
+	for _, r := range dc.ranges {
+		if r.start <= offset && r.end >= end {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getRanges returns a copy of all cached ranges
+func (dc *dataCache) getRanges() []CachedRange {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	ranges := make([]CachedRange, len(dc.ranges))
+	copy(ranges, dc.ranges)
+	return ranges
+}
+
+// clear removes all cached data
+func (dc *dataCache) clear() {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
+	dc.ranges = dc.ranges[:0]
 }

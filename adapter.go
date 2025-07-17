@@ -17,7 +17,7 @@ type FileAdapter interface {
 	Open(ctx context.Context) (io.ReadCloser, error)
 
 	// Reads up to len(buf) bytes into buf starting at offset. Returns number of bytes read and any error
-	Read(ctx context.Context, offset int64, buf []byte) (int, error)
+	Read(ctx context.Context, offset int64, size int64, buf []byte) (int, error)
 
 	// Writes len(p) bytes from p to the file starting at offset
 	// Returns number of bytes written and any error
