@@ -1,6 +1,7 @@
 package fuse
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 
@@ -10,16 +11,16 @@ import (
 	"github.com/puzpuzpuz/xsync/v4"
 )
 
-// NodeIDManager handles mapping between runtime NodeIDs and core Nodes.
+// ServerBridger handles mapping between runtime NodeIDs and core Nodes.
 // Context-based methods are thread-safe wrappers whose ctx.Close()
 // must be called when finished to unlock all associated locks
-type NodeIDManager interface {
-	// AllocateNodeID(node *filesystem.Node) uint64
+type ServerBridger interface {
 	GetNodeCtx(nodeID uint64) (ctx *filesystem.NodeContext)
-	// See [FileSystem.LookupChildCtx]
+	// See [webfs.FileSystem.LookupChildCtx]
 	GetChildCtx(parentID uint64, name string) (ctx *filesystem.NodeContext)
 	ForgetNodeID(id uint64)
 	EnsureNodeID(node *filesystem.Node) uint64
+	Read(ctx context.Context, nodeID uint64, offset int64, size int64) ([]byte, error)
 }
 
 // TODO: these are in cfg but need to define and pass fuse cfg
@@ -33,10 +34,12 @@ const (
 // See https://www.man7.org/linux//man-pages/man4/fuse.4.html
 type FuseRaw struct {
 	fuse.RawFileSystem
-	fs        NodeIDManager
-	nextDirFh atomic.Uint64                          // directory file handle counter
-	openDirs  *xsync.Map[uint64, []*filesystem.Node] // map of open dir Fhs stable-order child slices
-	server    *fuse.Server
+	fs         ServerBridger
+	nextDirFh  atomic.Uint64                          // directory file handle counter
+	openDirs   *xsync.Map[uint64, []*filesystem.Node] // map of open dir Fhs stable-order child slices TODO: rethink if we can avoid storing underlying refs
+	nextFileFh atomic.Uint64                          // file handle counter
+	openFiles  *xsync.Map[uint64, uint64]             // map of file Fhs to NodeIDs
+	server     *fuse.Server
 }
 
 func NewFuseRaw(fs *filesystem.FileSystem) *FuseRaw {
@@ -44,8 +47,10 @@ func NewFuseRaw(fs *filesystem.FileSystem) *FuseRaw {
 		RawFileSystem: fuse.NewDefaultRawFileSystem(),
 		fs:            fs,
 		openDirs:      xsync.NewMap[uint64, []*filesystem.Node](),
+		openFiles:     xsync.NewMap[uint64, uint64](),
 	}
 	r.nextDirFh.Store(1)
+	r.nextFileFh.Store(1)
 	return &r
 }
 
@@ -110,6 +115,7 @@ func (r *FuseRaw) Forget(nodeid, nlookup uint64) {
 	logger.Trace().Uint64("nodeid", nodeid).Uint64("nlookup", nlookup).Msg("Forget called")
 
 	r.fs.ForgetNodeID(nodeid)
+	// TODO: May/may not need to clean up open Fhs (unlikely kernel would forget on any open handles)
 }
 
 func (r *FuseRaw) GetAttr(cancel <-chan struct{}, header *fuse.GetAttrIn, out *fuse.AttrOut) fuse.Status {
@@ -262,4 +268,75 @@ func (r *FuseRaw) ReleaseDir(input *fuse.ReleaseIn) {
 	logger := util.GetLogger("Fuse.ReleaseDir")
 	logger.Trace().Interface("input", input).Msg("ReleaseDir called")
 	r.openDirs.Delete(input.Fh) // no panic if key doesn't exist
+}
+
+// File Handlers
+
+// Open is called when a file is opened
+func (r *FuseRaw) Open(cancel <-chan struct{}, in *fuse.OpenIn, out *fuse.OpenOut) fuse.Status {
+	logger := util.GetLogger("Fuse.Open")
+	logger.Trace().Interface("in", in).Msg("Open called")
+
+	// Verify node exists
+	nodeCtx := r.fs.GetNodeCtx(in.NodeId)
+	if nodeCtx == nil {
+		logger.Debug().Uint64("nodeid", in.NodeId).Msg("No node found")
+		return fuse.ENOENT
+	}
+	defer nodeCtx.Close()
+
+	// TODO: Check if node is a file (not directory)
+	// For now, assume it's a file
+
+	// Allocate a new file handle
+	fh := r.nextFileFh.Add(1)
+
+	// Store the mapping from file handle to NodeID
+	r.openFiles.Store(fh, in.NodeId)
+
+	logger.Debug().Uint64("nodeid", in.NodeId).Uint64("fh", fh).Msg("File opened")
+
+	out.Fh = fh
+	// TODO: Set appropriate flags based on open mode
+	// out.OpenFlags = fuse.FOPEN_KEEP_CACHE // Enable caching
+
+	return fuse.OK
+}
+
+// Read is called when data is read from a file
+func (r *FuseRaw) Read(cancel <-chan struct{}, in *fuse.ReadIn, buf []byte) (fuse.ReadResult, fuse.Status) {
+	logger := util.GetLogger("Fuse.Read")
+	logger.Trace().Interface("in", in).Int("buflen", len(buf)).Msg("Read called")
+
+	// Get NodeID from file handle
+	nodeID, ok := r.openFiles.Load(in.Fh)
+	if !ok {
+		logger.Debug().Uint64("fh", in.Fh).Msg("No file handle found")
+		return nil, fuse.EBADF
+	}
+
+	// Create context for the read operation
+	ctx := context.Background()
+
+	// Read data from filesystem
+	data, err := r.fs.Read(ctx, nodeID, int64(in.Offset), int64(in.Size))
+	if err != nil {
+		logger.Error().Err(err).Uint64("nodeID", nodeID).Uint64("offset", in.Offset).Uint32("size", in.Size).Msg("Read failed")
+		return nil, fuse.EIO
+	}
+
+	logger.Trace().Uint64("nodeID", nodeID).Uint64("offset", in.Offset).Int("bytesRead", len(data)).Msg("Read completed")
+
+	return fuse.ReadResultData(data), fuse.OK
+}
+
+// Release is called when a file handle is closed
+func (r *FuseRaw) Release(cancel <-chan struct{}, in *fuse.ReleaseIn) {
+	logger := util.GetLogger("Fuse.Release")
+	logger.Trace().Interface("in", in).Msg("Release called")
+
+	// Remove the file handle mapping
+	r.openFiles.Delete(in.Fh)
+
+	logger.Debug().Uint64("fh", in.Fh).Msg("File handle released")
 }
