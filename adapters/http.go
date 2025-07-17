@@ -118,7 +118,7 @@ func (h *HTTPAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) 
 	}
 
 	meta := &webfs.FileMetadata{
-		Size: resp.ContentLength,
+		Size: uint64(resp.ContentLength), // TODO: Check for overflow?
 	}
 
 	// Parse Last-Modified header

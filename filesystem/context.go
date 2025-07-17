@@ -3,19 +3,16 @@ package filesystem
 import "github.com/hanwen/go-fuse/v2/fuse"
 
 // NodeContext wraps a locked [Node] (plus any upstream locks).
-// The Node is locked with parentMu.RLock() to protect access to parent and other fields.
-// Children access within the context uses lock-free xsync.Map operations.
 // Calling NodeContext.Close() unwinds all unlocking/cleanup callbacks in reverse order.
-// Do NOT invoke any locking methods on the raw Node or its embedded Inode while
+// Do NOT invoke any locking methods on the raw Node
 // this context is active. Use only the safe snapshot and update helpers below.
-//
 // NOTE: NodeContext itself is **not** thread-safe meaning references
 // to it should not be shared between goroutines
 type NodeContext struct {
-	node             *Node
-	closeFns         []func()
-	inodeReadLocked  bool // tracks if Inode read-lock is held
-	inodeWriteLocked bool // tracks if Inode write-lock is held
+	node     *Node
+	closeFns []func()
+	// inodeReadLocked  bool // tracks if Inode read-lock is held
+	// inodeWriteLocked bool // tracks if Inode write-lock is held
 }
 
 // NewNodeContext RLocks the Node and returns a new NodeContext for safe access
@@ -45,7 +42,7 @@ func (ctx *NodeContext) Attr() fuse.Attr {
 func (ctx *NodeContext) UpdateAttr(fn func(attr *fuse.Attr)) {
 	ctx.node.Inode.mu.Lock()
 	defer ctx.node.Inode.mu.Unlock()
-	fn(ctx.node.fuseAttr)
+	fn(ctx.node.attr)
 }
 
 // Children returns a slice of locked child node contexts

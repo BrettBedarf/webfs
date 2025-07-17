@@ -3,8 +3,8 @@ package server
 import (
 	"github.com/brettbedarf/webfs/config"
 	"github.com/brettbedarf/webfs/filesystem"
-	"github.com/brettbedarf/webfs/internal/util"
 	wfuse "github.com/brettbedarf/webfs/fuse"
+	"github.com/brettbedarf/webfs/internal/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 

@@ -36,7 +36,7 @@ func NewFS(cfg *config.Config) *FileSystem {
 	rootAttr := newDefaultAttr(fuse.FUSE_ROOT_ID)
 	rootAttr.Mode = uint32(syscall.S_IFDIR | 0o555) // directory with r-xr-xr-x permissions
 
-	rootInode := NewInode(rootAttr)
+	rootInode := NewInode(rootAttr, nil)
 	rootNode := NewNode("", rootInode) // TODO: should be "." ??
 	rootNode.nodeID.Store(fuse.FUSE_ROOT_ID)
 
@@ -54,8 +54,8 @@ func NewFS(cfg *config.Config) *FileSystem {
 	return &fs
 }
 
-func (fs *FileSystem) Root() *Node {
-	return fs.root
+func (fs *FileSystem) RootCtx() *NodeContext {
+	return NewNodeContext(fs.root)
 }
 
 // AddFileNode adds a new file node to the filesystem. It will add any missing
@@ -78,7 +78,7 @@ func (fs *FileSystem) AddFileNode(req *webfs.FileCreateRequest) (*Node, error) {
 		}
 		parent = dNode
 	}
-	// Return error if file already exists
+
 	if _, ok := parent.GetChild(name); ok {
 		err := fmt.Errorf("file already exists at path %s", req.Path)
 		logger.Error().Err(err).Str("path", req.Path).Msg("Failed to create file")
@@ -88,10 +88,26 @@ func (fs *FileSystem) AddFileNode(req *webfs.FileCreateRequest) (*Node, error) {
 	attr := newDefaultAttr(fs.lastIno.Add(1))
 	attr.Mode = uint32(FileAttr) | req.Perms
 
-	inode := NewInode(attr)
+	adapters := make([]webfs.FileAdapter, 0, len(req.Sources))
+	for _, source := range req.Sources {
+		if a, err := source.Adapter(); err != nil {
+			logger.Error().Err(err).Interface("source", source).Interface("path", req.Path).Msg("Failed to create adapter")
+			continue
+		} else {
+			adapters = append(adapters, a)
+		}
+	}
+	if len(adapters) == 0 {
+		logger.Error().Str("path", req.Path).Msg("No valid adapters")
+		return nil, fmt.Errorf("no valid adapters")
+	}
+
+	inode := NewInode(attr, adapters)
+	inode.RefreshMeta()
 	node := NewNode(name, inode)
 	parent.AddChild(node)
-	logger.Info().Str("path", req.Path).Msg("Added new file node")
+	logger.Debug().Str("path", req.Path).Msg("Added new file node")
+	// Refresh metadata
 	return node, nil
 }
 
@@ -114,7 +130,7 @@ func (fs *FileSystem) AddDirNode(req *webfs.DirCreateRequest) (*Node, error) {
 			// Make new dir
 			attr := newDefaultAttr(fs.lastIno.Add(1))
 			attr.Mode = uint32(DirAttr) | req.Perms
-			inode := NewInode(attr)
+			inode := NewInode(attr, nil)
 			node := NewNode(name, inode)
 
 			cur.AddChild(node)
@@ -130,15 +146,6 @@ func (fs *FileSystem) AddDirNode(req *webfs.DirCreateRequest) (*Node, error) {
 }
 
 /* [NodeIDManager] interface implementations */
-
-// AllocateNodeID assigns a new registry NodeID for node and stores it
-//
-//	func (fs *FileSystem) AllocateNodeID(node *Node) uint64 {
-//		rid := fs.lastNodeID.Add(1)
-//		fs.nodeRegistry.Store(rid, node)
-//		return rid
-//	}
-//
 
 // GetNodeCtx returns a locked NodeContext with its Close() wired up
 // If the node does not exist, returns nil

@@ -4,10 +4,10 @@ package webfs
 type NodeInfo interface {
 	// Name returns the node's name (last path component)
 	Name() string
-	
+
 	// NodeID returns the unique node identifier
 	NodeID() uint64
-	
+
 	// IsDel returns true if the node is marked for deletion
 	IsDel() bool
 }

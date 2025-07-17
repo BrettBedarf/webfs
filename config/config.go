@@ -57,7 +57,7 @@ type MountOptions struct {
 	Name   string // mount's Name
 }
 
-// Config contains runtime configuration values for the HTTP filesystem.
+// Config contains runtime configuration values for the filesystem.
 type Config struct {
 	mu sync.RWMutex
 	MountOptions
