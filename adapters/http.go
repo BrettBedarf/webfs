@@ -91,12 +91,63 @@ func (h *HTTPAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-func (h *HTTPAdapter) Read(ctx context.Context, offset int64, p []byte) (int, error) {
-	// TODO: Implement range request logic
-	return 0, fmt.Errorf("Read not implemented")
+func (h *HTTPAdapter) Read(ctx context.Context, offset int64, size int64, buf []byte) (int, error) {
+	// Validate buffer size
+	if int64(len(buf)) < size {
+		return 0, fmt.Errorf("buffer too small: need %d bytes, got %d", size, len(buf))
+	}
+
+	// Create request with Range header for partial content
+	req, err := h.newRequest(ctx, h.getMethod())
+	if err != nil {
+		return 0, err
+	}
+
+	// Add Range header: "bytes=start-end" (end is inclusive)
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, offset+size-1)
+	req.Header.Set("Range", rangeHeader)
+
+	h.log.Debug().Str("range", rangeHeader).Str("url", h.cfg.URL).Msg("Making range request")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer h.closeResp(resp)
+
+	// Check for success status codes
+	// 206 = Partial Content (range request successful)
+	// 200 = OK (server doesn't support ranges, returns full content)
+	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	// If server doesn't support ranges (200 OK), we need to skip to offset
+	if resp.StatusCode == http.StatusOK {
+		// Server returned full content, discard bytes before offset
+		if offset > 0 {
+			discarded, err := io.CopyN(io.Discard, resp.Body, offset)
+			if err != nil {
+				return 0, fmt.Errorf("failed to skip to offset %d: %w", offset, err)
+			}
+			if discarded != offset {
+				return 0, fmt.Errorf("could not skip to offset %d, only skipped %d bytes", offset, discarded)
+			}
+		}
+	}
+
+	// Read the requested data into buffer
+	bytesRead, err := io.ReadFull(resp.Body, buf[:size])
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return 0, fmt.Errorf("failed to read data: %w", err)
+	}
+
+	h.log.Debug().Int("bytesRead", bytesRead).Int64("requested", size).Msg("Range request completed")
+
+	return bytesRead, nil
 }
 
-func (h *HTTPAdapter) Write(ctx context.Context, offset int64, p []byte) (int, error) {
+func (h *HTTPAdapter) Write(ctx context.Context, offset int64, buf []byte) (int, error) {
 	// HTTP sources are read-only to start
 	return 0, fmt.Errorf("HTTP sources are read-only")
 }
