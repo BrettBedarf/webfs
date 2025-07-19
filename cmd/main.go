@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/brettbedarf/webfs"
@@ -17,6 +19,11 @@ import (
 )
 
 func main() {
+	if os.Getenv("WAIT_FOR_DEBUGGER") == "1" {
+		fmt.Printf("PID=%d – waiting for debugger…\n", os.Getpid())
+		runtime.Breakpoint()
+		// time.Sleep(240 * time.Second)
+	}
 	// Parse command line arguments
 	var (
 		// configPath string
