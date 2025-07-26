@@ -60,11 +60,10 @@ func (fs *FileSystem) RootCtx() *NodeContext {
 }
 
 // AddFileNode adds a new file node to the filesystem. It will add any missing
-// directories in the path and return the newly created leaf node
+// directories in the path and return the newly created leaf node.
 // If a node already exists at the requested path, it will return an error
 func (fs *FileSystem) AddFileNode(req *webfs.FileCreateRequest) (*Node, error) {
 	logger := util.GetLogger("AddFileNode")
-
 	parent := fs.root
 	// TODO: Path edge cases
 	dirPath, name := path.Split(req.Path) // dir is full path to dir, file is just the filename
@@ -125,12 +124,20 @@ func (fs *FileSystem) AddDirNode(req *webfs.DirCreateRequest) (*Node, error) {
 	// Traverse the path until we get to existing dir and make
 	// any missing along the way
 	for _, name := range dSplit {
+		if name == "" {
+			continue
+		}
 		if child, ok := cur.children.Load(name); ok {
 			cur = child
 		} else {
 			// Make new dir
 			attr := newDefaultAttr(fs.lastIno.Add(1))
 			attr.Mode = uint32(DirAttr) | req.Perms
+			attr.SetTimes(&req.Atime, &req.Mtime, &req.Ctime)
+			attr.Gid = req.OwnerGID
+			attr.Uid = req.OwnerUID
+			attr.Size = 0
+
 			inode := NewInode(attr, nil)
 			node := NewNode(name, inode)
 
@@ -142,6 +149,10 @@ func (fs *FileSystem) AddDirNode(req *webfs.DirCreateRequest) (*Node, error) {
 	if newCnt > 0 {
 		logger.Info().Str("path", req.Path).Msg(fmt.Sprintf("Created %d new dir(s)", newCnt))
 	}
+
+	b := cur
+	ba := b.CopyAttr()
+	logger.Debug().Interface("attr", ba).Str("path", req.Path).Msg("Added new dir node")
 
 	return cur, nil
 }
@@ -158,9 +169,15 @@ func (fs *FileSystem) GetNodeCtx(nodeID uint64) (ctx *NodeContext) {
 		node.mu.RLock()
 		ctx = &NodeContext{node: node}
 		ctx.AddClose(node.mu.RUnlock)
+		if ctx.Name() == "bbb" {
+			root := NewNodeContext(fs.root)
+			defer root.Close()
+			root.LogNodeTreeBuilder(logger.Debug()).Msg("Root node tree")
+		}
 		return ctx
 	}
 	logger.Debug().Uint64("nodeID", nodeID).Msg("No node found")
+
 	return
 }
 

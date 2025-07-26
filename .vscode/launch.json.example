@@ -10,7 +10,10 @@
       "cwd": "${workspaceFolder}",
       "args": [
         "-debug",
-        "-nodes",
+        "-v",
+        "5",
+        "-u",
+        "--nodes",
         "${input:nodesFile}",
         "${input:mountPoint}"
       ],

@@ -212,7 +212,8 @@ func (r *FuseRaw) ReadDir(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.
 
 func (r *FuseRaw) ReadDirPlus(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.DirEntryList) fuse.Status {
 	logger := util.GetLogger("Fuse.ReadDir")
-	logger.Trace().Interface("input", input).Msg("ReadDirPlus called")
+	omap := xsync.ToPlainMap(r.openDirs)
+	logger.Trace().Interface("input", input).Interface("omap", omap).Msg("ReadDirPlus called")
 
 	parent := r.fs.GetNodeCtx(input.NodeId)
 	defer parent.Close()
@@ -251,7 +252,6 @@ func (r *FuseRaw) ReadDirPlus(cancel <-chan struct{}, input *fuse.ReadIn, out *f
 			// buffer full; kernel will call again with offset
 			break
 		}
-
 		entOut.NodeId = r.fs.EnsureNodeID(ch)
 		entOut.Generation = 0 // We aren't recycling NodeIDs with 64-bit counter
 		entOut.Attr = attr
@@ -284,9 +284,6 @@ func (r *FuseRaw) Open(cancel <-chan struct{}, in *fuse.OpenIn, out *fuse.OpenOu
 		return fuse.ENOENT
 	}
 	defer nodeCtx.Close()
-
-	// TODO: Check if node is a file (not directory)
-	// For now, assume it's a file
 
 	// Allocate a new file handle
 	fh := r.nextFileFh.Add(1)
