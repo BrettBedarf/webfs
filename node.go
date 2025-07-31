@@ -8,6 +8,9 @@ type NodeInfo interface {
 	// NodeID returns the unique node identifier
 	NodeID() uint64
 
+	// Path returns the full path to the node
+	Path() string
+
 	// IsDel returns true if the node is marked for deletion
 	IsDel() bool
 }

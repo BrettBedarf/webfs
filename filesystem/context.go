@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"github.com/rs/zerolog"
 )
 
 // NodeContext wraps a locked [Node] (plus any upstream locks).
@@ -30,6 +31,10 @@ func NewNodeContext(node *Node) *NodeContext {
 // Name returns the node's immutable Name.
 func (ctx *NodeContext) Name() string {
 	return ctx.node.name
+}
+
+func (ctx *NodeContext) Path() (string, error) {
+	return ctx.node.pathLocked()
 }
 
 func (ctx *NodeContext) NodeID() uint64 {
@@ -73,7 +78,7 @@ func (ctx *NodeContext) UnsafeChildren() []*Node {
 // IterChildren iterates over child nodes with lock-free access within the locked context
 // Each child node is read-locked before the callback is invoked and unlocked
 // automatically after the callback returns.
-func (ctx *NodeContext) IterChildren(fn func(ctx *NodeContext)) {
+func (ctx *NodeContext) IterChildren(fn func(ch *NodeContext)) {
 	ctx.node.children.Range(func(_ string, child *Node) bool {
 		nc := NewNodeContext(child)
 		fn(nc)
@@ -119,4 +124,23 @@ func (ctx *NodeContext) Close() {
 		ctx.closeFns[i]()
 	}
 	ctx.closeFns = nil
+}
+
+func (ctx *NodeContext) LogNodeBuilder(log *zerolog.Event) *zerolog.Event {
+	path, pErr := ctx.Path()
+	return log.Uint64("nodeID", ctx.NodeID()).Str("path", path).AnErr("path_err", pErr).Interface("attr", ctx.Attr())
+}
+
+// recursively build log event for entire node tree (should be used for debugging only).
+// Make sure to call event.Msg() when done
+func (ctx *NodeContext) LogNodeTreeBuilder(log *zerolog.Event) *zerolog.Event {
+	log = ctx.LogNodeBuilder(log)
+	chn := zerolog.Arr()
+	ctx.IterChildren(func(ch *NodeContext) {
+		chn = chn.Dict(ch.LogNodeTreeBuilder(zerolog.Dict()))
+	})
+
+	log.Array("children", chn)
+
+	return log
 }
