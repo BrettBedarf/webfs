@@ -22,7 +22,6 @@ func main() {
 	if os.Getenv("WAIT_FOR_DEBUGGER") == "1" {
 		fmt.Printf("PID=%d – waiting for debugger…\n", os.Getpid())
 		runtime.Breakpoint()
-		// time.Sleep(240 * time.Second)
 	}
 	// Parse command line arguments
 	var (

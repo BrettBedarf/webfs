@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 	// Build WebFS binary once for all tests
 	tmpBinDir, err := os.MkdirTemp("", "webfs-bin")
 	if err != nil {
-		panic(err)
+		panic(err) // panic for test setup only
 	}
 	defer func() {
 		if err := os.RemoveAll(tmpBinDir); err != nil {

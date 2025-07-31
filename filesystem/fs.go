@@ -169,11 +169,6 @@ func (fs *FileSystem) GetNodeCtx(nodeID uint64) (ctx *NodeContext) {
 		node.mu.RLock()
 		ctx = &NodeContext{node: node}
 		ctx.AddClose(node.mu.RUnlock)
-		if ctx.Name() == "bbb" {
-			root := NewNodeContext(fs.root)
-			defer root.Close()
-			root.LogNodeTreeBuilder(logger.Debug()).Msg("Root node tree")
-		}
 		return ctx
 	}
 	logger.Debug().Uint64("nodeID", nodeID).Msg("No node found")

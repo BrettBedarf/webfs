@@ -51,7 +51,7 @@ func (n *Node) Path() (string, error) {
 	return n.pathLocked()
 }
 
-// See [Node.Path]
+// See [Node.Path]. Only safe to call when Node is already locked
 func (n *Node) pathLocked() (string, error) {
 	if n.isRootLocked() {
 		return "", nil
@@ -100,7 +100,7 @@ func (n *Node) RemoveChild(name string) bool {
 	return false
 }
 
-// internal name accessor when Node is already locked
+// See [Node.Name] only safe to call when Node is already locked
 func (n *Node) nameLocked() string {
 	return n.name
 }
@@ -135,6 +135,7 @@ func (n *Node) IsRoot() bool {
 	return n.isRootLocked()
 }
 
+// See [Node.IsRoot]. Only safe to call when Node is already locked.
 func (n *Node) isRootLocked() bool {
 	ret := false
 	if n.parent == nil {
