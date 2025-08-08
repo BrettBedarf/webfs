@@ -313,10 +313,10 @@ func TestNode_ConcurrentChildOperations(t *testing.T) {
 	wg.Add(numGoroutines)
 
 	// Concurrent add/remove operations
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(goroutineID int) {
 			defer wg.Done()
-			for j := 0; j < numOperations; j++ {
+			for j := range numOperations {
 				childName := fmt.Sprintf("child_%d_%d", goroutineID, j)
 				childInode := createTestInodeForNode(uint64(goroutineID*1000+j), false)
 				child, err := NewNode(childName, childInode)
@@ -389,10 +389,10 @@ func TestNode_ConcurrentNameAccess(t *testing.T) {
 	wg.Add(numGoroutines)
 
 	// Concurrent name access using different methods
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				name1 := node.Name()
 				name2 := node.NameSafe()
 				assert.Equal(t, "test.txt", name1)
