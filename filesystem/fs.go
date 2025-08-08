@@ -17,14 +17,6 @@ import (
 	"github.com/puzpuzpuz/xsync/v4"
 )
 
-// TODO: split up interfaces needed for FUSE bridge and core pub interface
-
-// type FileSystemOperator interface {
-// 	Root() *Node
-// 	AddFileNode(req *webfs.FileCreateRequest) (*Node, error)
-// 	AddDirNode(req *webfs.DirCreateRequest) (*Node, error)
-// }
-
 type FileSystem struct {
 	cfg          *config.Config
 	root         *Node                     // Root of node tree
@@ -38,7 +30,10 @@ func NewFS(cfg *config.Config) *FileSystem {
 	rootAttr.Mode = uint32(syscall.S_IFDIR | 0o555) // directory with r-xr-xr-x permissions
 
 	rootInode := NewInode(rootAttr, nil)
-	rootNode := NewNode("", rootInode) // TODO: should be "." ??
+	rootNode, err := NewNode("", rootInode) // TODO: should be "." ??
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create root node: %v", err))
+	}
 	rootNode.nodeID.Store(fuse.FUSE_ROOT_ID)
 
 	// inodeMap := make(map[uint64]*Inode)
@@ -104,7 +99,10 @@ func (fs *FileSystem) AddFileNode(req *webfs.FileCreateRequest) (*Node, error) {
 
 	inode := NewInode(attr, adapters)
 	inode.RefreshMeta()
-	node := NewNode(name, inode)
+	node, err := NewNode(name, inode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create node: %w", err)
+	}
 	parent.AddChild(node)
 	logger.Debug().Str("path", req.Path).Msg("Added new file node")
 	// Refresh metadata
@@ -139,7 +137,10 @@ func (fs *FileSystem) AddDirNode(req *webfs.DirCreateRequest) (*Node, error) {
 			attr.Size = 0
 
 			inode := NewInode(attr, nil)
-			node := NewNode(name, inode)
+			node, err := NewNode(name, inode)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create node: %w", err)
+			}
 
 			cur.AddChild(node)
 			newCnt++
@@ -151,7 +152,7 @@ func (fs *FileSystem) AddDirNode(req *webfs.DirCreateRequest) (*Node, error) {
 	}
 
 	b := cur
-	ba := b.CopyAttr()
+	ba := b.inode.CopyAttr()
 	logger.Debug().Interface("attr", ba).Str("path", req.Path).Msg("Added new dir node")
 
 	return cur, nil

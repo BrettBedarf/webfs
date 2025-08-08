@@ -44,14 +44,14 @@ func (ctx *NodeContext) NodeID() uint64 {
 // Attr returns a snapshot of the fuse attributes.
 func (ctx *NodeContext) Attr() fuse.Attr {
 	// brief inode read-lock & release
-	return ctx.node.CopyAttr()
+	return ctx.node.inode.CopyAttr()
 }
 
 // UpdateAttr runs fn under the Inode write-lock for atomic modifications.
 func (ctx *NodeContext) UpdateAttr(fn func(attr *fuse.Attr)) {
-	ctx.node.Inode.mu.Lock()
-	defer ctx.node.Inode.mu.Unlock()
-	fn(ctx.node.attr)
+	ctx.node.inode.mu.Lock()
+	defer ctx.node.inode.mu.Unlock()
+	fn(ctx.node.inode.attr)
 }
 
 // Children returns a slice of locked child node contexts
@@ -99,12 +99,12 @@ func (ctx *NodeContext) AddClose(fn func()) {
 
 // Read reads data from the node's inode with automatic caching and failover
 func (ctx *NodeContext) Read(reqCtx context.Context, offset int64, size int64) ([]byte, error) {
-	return ctx.node.Read(reqCtx, offset, size)
+	return ctx.node.inode.Read(reqCtx, offset, size)
 }
 
 // IsCached returns true if the specified range is cached in the node's inode
 func (ctx *NodeContext) IsCached(offset int64, size int64) bool {
-	return ctx.node.IsCached(offset, size)
+	return ctx.node.inode.IsCached(offset, size)
 }
 
 // Close unwinds all cleanup callbacks in reverse order.

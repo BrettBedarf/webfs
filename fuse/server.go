@@ -192,7 +192,7 @@ func (r *FuseRaw) ReadDir(cancel <-chan struct{}, input *fuse.ReadIn, out *fuse.
 			children[i] = nil
 			continue
 		}
-		attr := ch.CopyAttr()
+		attr := ch.Inode().CopyAttr()
 
 		ok := out.AddDirEntry(fuse.DirEntry{
 			Name: ch.Name(),
@@ -240,7 +240,7 @@ func (r *FuseRaw) ReadDirPlus(cancel <-chan struct{}, input *fuse.ReadIn, out *f
 			children[i] = nil
 			continue
 		}
-		attr := ch.CopyAttr()
+		attr := ch.Inode().CopyAttr()
 
 		entOut := out.AddDirLookupEntry(fuse.DirEntry{
 			Name: ch.Name(),
