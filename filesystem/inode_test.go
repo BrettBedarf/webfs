@@ -3,6 +3,7 @@ package filesystem
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
@@ -301,8 +302,8 @@ func TestInode_NoAdapters(t *testing.T) {
 		t.Error("Read should fail when no adapters are available")
 	}
 
-	if err.Error() != "adapter pool not set" {
-		t.Errorf("Expected 'adapter pool not set' error, got: %v", err)
+	if !errors.Is(err, ErrNoAdapters) {
+		t.Errorf("expected ErrNoAdapters, got %v", err)
 	}
 }
 

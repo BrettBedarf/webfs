@@ -2,7 +2,7 @@ package filesystem
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,6 +11,8 @@ import (
 	"github.com/brettbedarf/webfs/internal/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
+
+var ErrNoAdapters = errors.New("adapter pool not set")
 
 type Inode struct {
 	// Low-level fuse wire protocol attributes; Only access directly if
@@ -103,7 +105,7 @@ func (n *Inode) RefreshMeta() {
 // Read reads data from the inode, using cache when available or fetching from adapters
 func (n *Inode) Read(ctx context.Context, offset int64, size int64) ([]byte, error) {
 	if n.adapterPool == nil {
-		return nil, fmt.Errorf("adapter pool not set")
+		return nil, ErrNoAdapters
 	}
 
 	// Check cache first
