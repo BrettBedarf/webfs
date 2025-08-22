@@ -36,7 +36,6 @@ func NewFS(cfg *config.Config) *FileSystem {
 	}
 	rootNode.nodeID.Store(fuse.FUSE_ROOT_ID)
 
-	// inodeMap := make(map[uint64]*Inode)
 	inodeMap := xsync.NewMap[uint64, *Inode]()
 	inodeMap.Store(fuse.FUSE_ROOT_ID, rootInode)
 

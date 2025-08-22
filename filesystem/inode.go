@@ -158,9 +158,10 @@ func (n *Inode) ClearCache() {
 type inodeAdapter struct {
 	webfs.FileAdapter
 	isHealthy   atomic.Bool
-	lastAttempt time.Time
 	failCount   int32
 	maxRetries  int32
+	mu          sync.RWMutex
+	lastAttempt time.Time
 }
 
 type adapterPool struct {
@@ -259,7 +260,9 @@ func (p *adapterPool) tryOperation(ctx context.Context, operation func(context.C
 func (a *inodeAdapter) markFailed() {
 	a.isHealthy.Store(false)
 	atomic.AddInt32(&a.failCount, 1)
+	a.mu.Lock()
 	a.lastAttempt = time.Now()
+	a.mu.Unlock()
 }
 
 func (a *inodeAdapter) markHealthy() {
@@ -277,7 +280,10 @@ func (a *inodeAdapter) shouldRetry() bool {
 		return false
 	}
 
-	return time.Since(a.lastAttempt) > time.Duration(failCount)*time.Second
+	a.mu.RLock()
+	lastAttempt := a.lastAttempt
+	a.mu.RUnlock()
+	return time.Since(lastAttempt) > time.Duration(failCount)*time.Second
 }
 
 // newDataCache creates a new empty data cache
