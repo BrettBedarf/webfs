@@ -87,19 +87,31 @@ func (c *Config) NumCacheChunks() int {
 // ConfigOverride uses pointer fields to distinguish between unset and zero values
 // when loading partial configuration. See [Config] for field descriptions.
 type ConfigOverride struct {
-	ChunkSize         *int           `yaml:"chunk_size,omitempty" json:"chunk_size,omitempty"`
-	CacheMaxSize      *int           `yaml:"cache_max_size,omitempty" json:"cache_max_size,omitempty"`
-	MaxPrefetchAhead  *int           `yaml:"max_prefetch_ahead,omitempty" json:"max_prefetch_ahead,omitempty"`
-	PrefetchBatchSize *int           `yaml:"prefetch_batch_size,omitempty" json:"prefetch_batch_size,omitempty"`
-	MaxFH             *int           `yaml:"max_fh,omitempty" json:"max_fh,omitempty"`
-	MaxWrite          *int           `yaml:"max_write,omitempty" json:"max_write,omitempty"`
-	AttrTimeout       *float64       `yaml:"attr_timeout,omitempty" json:"attr_timeout,omitempty"`
-	EntryTimeout      *float64       `yaml:"entry_timeout,omitempty" json:"entry_timeout,omitempty"`
-	DirectIO          *bool          `yaml:"direct_io,omitempty" json:"direct_io,omitempty"`
-	LogLvl            *util.LogLevel `yaml:"verbose,omitempty" json:"verbose,omitempty"`
-	FsName            *string        `yaml:"fs_name,omitempty" json:"fs_name,omitempty"`
-	Name              *string        `yaml:"name,omitempty" json:"name,omitempty"`
+	ChunkSize         *int     `yaml:"chunk_size,omitempty" json:"chunk_size,omitempty"`
+	CacheMaxSize      *int     `yaml:"cache_max_size,omitempty" json:"cache_max_size,omitempty"`
+	MaxPrefetchAhead  *int     `yaml:"max_prefetch_ahead,omitempty" json:"max_prefetch_ahead,omitempty"`
+	PrefetchBatchSize *int     `yaml:"prefetch_batch_size,omitempty" json:"prefetch_batch_size,omitempty"`
+	MaxFH             *int     `yaml:"max_fh,omitempty" json:"max_fh,omitempty"`
+	MaxWrite          *int     `yaml:"max_write,omitempty" json:"max_write,omitempty"`
+	AttrTimeout       *float64 `yaml:"attr_timeout,omitempty" json:"attr_timeout,omitempty"`
+	EntryTimeout      *float64 `yaml:"entry_timeout,omitempty" json:"entry_timeout,omitempty"`
+	DirectIO          *bool    `yaml:"direct_io,omitempty" json:"direct_io,omitempty"`
+	// NOTE: Override LogLvl is verbosity 1 (Error) to 5 (Trace) scale
+	LogLvl *int    `yaml:"verbose,omitempty" json:"verbose,omitempty"`
+	FsName *string `yaml:"fs_name,omitempty" json:"fs_name,omitempty"`
+	Name   *string `yaml:"name,omitempty" json:"name,omitempty"`
 }
+
+// TODO: Messy af verbosity vs internal log lvl; just make them all match
+type ConfigOverrideVerbose = int
+
+const (
+	ErrorVerbose ConfigOverrideVerbose = 1
+	WarnVerbose  ConfigOverrideVerbose = 2
+	InfoVerbose  ConfigOverrideVerbose = 3
+	DebugVerbose ConfigOverrideVerbose = 4
+	TraceVerbose ConfigOverrideVerbose = 5
+)
 
 // NewConfig creates a new Config with all default values.
 func NewConfig(override *ConfigOverride) *Config {
@@ -120,14 +132,14 @@ func NewConfig(override *ConfigOverride) *Config {
 		DirectIO:          DefaultDirectIO,
 	}
 
-	cfg.Merge(override)
+	cfg.merge(override)
 
 	return cfg
 }
 
-// Merge applies non-nil values from override onto this Config.
+// merge applies non-nil values from override onto this Config.
 // This allows partial configuration updates while preserving existing values.
-func (c *Config) Merge(override *ConfigOverride) {
+func (c *Config) merge(override *ConfigOverride) {
 	if override == nil {
 		return
 	}
@@ -159,7 +171,12 @@ func (c *Config) Merge(override *ConfigOverride) {
 		c.DirectIO = *override.DirectIO
 	}
 	if override.LogLvl != nil {
-		c.LogLvl = *override.LogLvl
+		// override LogLvl has different scale from internal to match CLI behavior
+		verbose := min(max(*override.LogLvl, ErrorVerbose), TraceVerbose) // clamp to 1-5
+		logLvls := [5]util.LogLevel{util.ErrorLevel, util.WarnLevel, util.InfoLevel, util.DebugLevel, util.TraceLevel}
+		logLvl := logLvls[verbose-1]
+
+		c.LogLvl = logLvl
 	}
 	if override.FsName != nil {
 		c.FsName = *override.FsName
