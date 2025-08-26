@@ -26,12 +26,12 @@ func NewRegistry() *Registry {
 // adapter type during app init
 func (r *Registry) Register(adapterType string, provider webfs.AdapterProvider) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, ok := r.providers[adapterType]; ok {
-		r.log.Warn().Str("type", adapterType).Msg("Adapter type already registered")
+		r.log.Warn().Str("type", adapterType).Msg("Adapter type already registered, ignoring")
 		return
 	}
 	r.providers[adapterType] = provider
-	r.mu.Unlock()
 }
 
 // GetProvider returns the provider for the given adapter type
@@ -44,6 +44,8 @@ func (r *Registry) GetProvider(adapterType string) (webfs.AdapterProvider, error
 	}
 	return provider, nil
 }
+
+// TODO: YAML nodes support
 
 // NewAdapter picks the right provider based on the "type" field and creates an adapter.
 // All expected source adapter types should be registered with [Register]
