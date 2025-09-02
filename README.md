@@ -12,7 +12,8 @@ Linux, Mac(untested), or FreeBSD(untested) operating system with appropriate os-
 
 ### Linux
 
-fusermount3 is available from all known major distro package managers, ex. [Arch Linux](https://man.archlinux.org/man/fusermount3.1.en) (btw): `sudo pacman -S fuse3`
+fusermount3 is available from all known major distro package managers
+ex. [Arch Linux](https://man.archlinux.org/man/fusermount3.1.en) (btw): `sudo pacman -S fuse3`
 
 ### MacOS (untested)
 
