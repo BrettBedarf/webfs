@@ -310,15 +310,13 @@ func TestNode_ConcurrentChildOperations(t *testing.T) {
 	const numOperations = 100
 
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
 
 	// Concurrent add/remove operations
 	for i := range numGoroutines {
-		go func(goroutineID int) {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range numOperations {
-				childName := fmt.Sprintf("child_%d_%d", goroutineID, j)
-				childInode := createTestInodeForNode(uint64(goroutineID*1000+j), false)
+				childName := fmt.Sprintf("child_%d_%d", i, j)
+				childInode := createTestInodeForNode(uint64(i*1000+j), false)
 				child, err := NewNode(childName, childInode)
 				require.NoError(t, err)
 				// Add child
@@ -335,8 +333,12 @@ func TestNode_ConcurrentChildOperations(t *testing.T) {
 				// Verify it was removed
 				_, exists = parent.GetChild(childName)
 				assert.False(t, exists)
+
+				// Small delay to increase chance of race conditions
+				time.Sleep(time.Microsecond)
+
 			}
-		}(i)
+		})
 	}
 
 	wg.Wait()
@@ -359,12 +361,10 @@ func TestNode_ConcurrentPathAccess(t *testing.T) {
 
 	const numGoroutines = 10
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
 
 	// Concurrent path access
 	for range numGoroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				path, err := file.Path()
 				assert.NoError(t, err)
@@ -373,7 +373,7 @@ func TestNode_ConcurrentPathAccess(t *testing.T) {
 				// Small delay to increase chance of race conditions
 				time.Sleep(time.Microsecond)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -386,21 +386,20 @@ func TestNode_ConcurrentNameAccess(t *testing.T) {
 
 	const numGoroutines = 10
 	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
 
 	// Concurrent name access using different methods
 	for range numGoroutines {
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 100 {
 				name1 := node.Name()
 				name2 := node.NameSafe()
 				assert.Equal(t, "test.txt", name1)
 				assert.Equal(t, "test.txt", name2)
 
+				// Small delay to increase chance of race conditions
 				time.Sleep(time.Microsecond)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

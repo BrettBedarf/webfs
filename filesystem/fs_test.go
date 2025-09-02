@@ -534,12 +534,10 @@ func TestFileSystem_ConcurrentAddDirNode(t *testing.T) {
 	errs := make(chan error, 20)
 
 	for range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := fs.AddDirNode(&webfs.DirCreateRequest{NodeRequest: webfs.NodeRequest{Path: path, Perms: 0o755}})
 			errs <- err
-		}()
+		})
 	}
 
 	wg.Wait()
