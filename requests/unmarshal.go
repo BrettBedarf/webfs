@@ -23,7 +23,7 @@ func GetNodeType(data []byte) (webfs.NodeCreateRequestType, error) {
 }
 
 // UnmarshalFileRequest handles file-specific unmarshaling with sources
-func UnmarshalFileRequest(data []byte) (*webfs.FileCreateRequest, error) {
+func UnmarshalFileRequest(data []byte, registry *adapters.Registry) (*webfs.FileCreateRequest, error) {
 	var dto FileRequestDTO
 	if err := json.Unmarshal(data, &dto); err != nil {
 		return nil, err
@@ -32,7 +32,7 @@ func UnmarshalFileRequest(data []byte) (*webfs.FileCreateRequest, error) {
 	// Convert DTO to core type with defaults applied
 	coreNode := convertNodeDTO(dto.NodeRequestDTO)
 
-	sources, err := unmarshalSources(dto.Sources, data)
+	sources, err := unmarshalSources(dto.Sources, data, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func UnmarshalDirRequest(data []byte) (*webfs.DirCreateRequest, error) {
 }
 
 // Helper function to process sources array
-func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]webfs.FileSource, error) {
+func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte, r *adapters.Registry) ([]webfs.FileSource, error) {
 	logger := util.GetLogger("requests.unmarshalSources")
 	// Extract raw sources array from JSON for adapter registry
 	var rawMessage struct {
@@ -78,7 +78,7 @@ func unmarshalSources(sourceDTOs []SourceConfigDTO, rawData []byte) ([]webfs.Fil
 		}
 
 		// Get provider from registry
-		provider, err := adapters.GetProvider(meta.Type)
+		provider, err := r.GetProvider(meta.Type)
 		if err != nil {
 			logger.Error().Err(err).Str("type", meta.Type).Str("source", string(rawSource)).
 				Msg("Failed to get adapter provider")

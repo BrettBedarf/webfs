@@ -2,7 +2,7 @@ package filesystem
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,6 +11,8 @@ import (
 	"github.com/brettbedarf/webfs/internal/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
+
+var ErrNoAdapters = errors.New("adapter pool not set")
 
 type Inode struct {
 	// Low-level fuse wire protocol attributes; Only access directly if
@@ -103,7 +105,7 @@ func (n *Inode) RefreshMeta() {
 // Read reads data from the inode, using cache when available or fetching from adapters
 func (n *Inode) Read(ctx context.Context, offset int64, size int64) ([]byte, error) {
 	if n.adapterPool == nil {
-		return nil, fmt.Errorf("adapter pool not set")
+		return nil, ErrNoAdapters
 	}
 
 	// Check cache first
@@ -156,9 +158,10 @@ func (n *Inode) ClearCache() {
 type inodeAdapter struct {
 	webfs.FileAdapter
 	isHealthy   atomic.Bool
-	lastAttempt time.Time
 	failCount   int32
 	maxRetries  int32
+	mu          sync.RWMutex
+	lastAttempt time.Time
 }
 
 type adapterPool struct {
@@ -257,7 +260,9 @@ func (p *adapterPool) tryOperation(ctx context.Context, operation func(context.C
 func (a *inodeAdapter) markFailed() {
 	a.isHealthy.Store(false)
 	atomic.AddInt32(&a.failCount, 1)
+	a.mu.Lock()
 	a.lastAttempt = time.Now()
+	a.mu.Unlock()
 }
 
 func (a *inodeAdapter) markHealthy() {
@@ -275,7 +280,10 @@ func (a *inodeAdapter) shouldRetry() bool {
 		return false
 	}
 
-	return time.Since(a.lastAttempt) > time.Duration(failCount)*time.Second
+	a.mu.RLock()
+	lastAttempt := a.lastAttempt
+	a.mu.RUnlock()
+	return time.Since(lastAttempt) > time.Duration(failCount)*time.Second
 }
 
 // newDataCache creates a new empty data cache

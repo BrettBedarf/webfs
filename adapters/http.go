@@ -22,11 +22,11 @@ const (
 	HTTPMethodDelete HTTPMethod = "DELETE"
 )
 
-func RegisterHTTP() {
+func RegisterHTTP(r *Registry) {
 	provider := &HTTPProvider{
 		// Can add shared resources here later (HTTP client, connection pool, etc.)
 	}
-	Register("http", provider)
+	r.Register("http", provider)
 }
 
 // HTTPProvider implements webfs.AdapterProvider for HTTP sources
