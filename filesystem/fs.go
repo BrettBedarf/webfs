@@ -161,19 +161,19 @@ func (fs *FileSystem) AddDirNode(req *webfs.DirCreateRequest) (*Node, error) {
 
 // GetNodeCtx returns a locked NodeContext with its Close() wired up
 // If the node does not exist, returns nil
-func (fs *FileSystem) GetNodeCtx(nodeID uint64) (ctx *NodeContext) {
+func (fs *FileSystem) GetNodeCtx(nodeID uint64) *NodeContext {
 	logger := util.GetLogger("GetNodeCtx")
 	logger.Trace().Uint64("nodeID", nodeID).Msg("GetNodeCtx called")
 
 	if node, ok := fs.nodeRegistry.Load(nodeID); ok {
 		node.mu.RLock()
-		ctx = &NodeContext{node: node}
+		ctx := &NodeContext{node: node}
 		ctx.AddClose(node.mu.RUnlock)
-		return ctx
+		return nil
 	}
 	logger.Debug().Uint64("nodeID", nodeID).Msg("No node found")
 
-	return
+	return nil
 }
 
 // ForgetNodeID removes the registry NodeID entry
@@ -196,20 +196,20 @@ func (fs *FileSystem) ForgetNodeID(id uint64) {
 // If the parent or child do not exist, returns nil
 //
 // Caller is responsible for closing the context when done `defer ctx.Close()`.
-func (fs *FileSystem) GetChildCtx(parentID uint64, name string) (ctx *NodeContext) {
+func (fs *FileSystem) GetChildCtx(parentID uint64, name string) *NodeContext {
 	logger := util.GetLogger("FS.GetChildCtx")
 	logger.Trace().Uint64("parentID", parentID).Str("name", name).Msg("GetChildCtx called")
 
 	parent, ok := fs.nodeRegistry.Load(parentID)
 	if !ok {
 		logger.Debug().Uint64("parentID", parentID).Str("name", name).Msg("No parent found")
-		return
+		return nil
 	}
 	if child, ok := parent.GetChild(name); ok { // parent lock immediately releases
 		fs.EnsureNodeID(child)
 		return NewNodeContext(child)
 	}
-	return
+	return nil
 }
 
 // EnsureNodeID retrieves or allocates & sets NodeID; safe with or without held locks.

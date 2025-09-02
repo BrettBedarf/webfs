@@ -79,7 +79,7 @@ type MockAdapterProvider struct {
 	mock.Mock
 }
 
-func (m *MockAdapterProvider) Adapter(raw []byte) (webfs.FileAdapter, error) {
+func (m *MockAdapterProvider) NewAdapter(raw []byte) (webfs.FileAdapter, error) {
 	args := m.Called(raw)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

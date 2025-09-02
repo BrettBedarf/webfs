@@ -33,7 +33,7 @@ type FileAdapter interface {
 // generated from request's SourceConfig.
 // Implementations should handle resource management (connection pooling etc) for its adapters
 type AdapterProvider interface {
-	Adapter(raw []byte) (FileAdapter, error)
+	NewAdapter(raw []byte) (FileAdapter, error)
 }
 
 // FileSource is a container for concrete adapter implementations that can be
@@ -46,7 +46,7 @@ type FileSource struct {
 
 // Adapter creates a FileAdapter from this source's configuration
 func (fs *FileSource) Adapter() (FileAdapter, error) {
-	return fs.Provider.Adapter(fs.Config)
+	return fs.Provider.NewAdapter(fs.Config)
 }
 
 // FileMetadata contains standardized metadata across all adapter types

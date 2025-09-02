@@ -56,7 +56,7 @@ type testProvider struct {
 	err     error
 }
 
-func (p *testProvider) Adapter(config []byte) (webfs.FileAdapter, error) { return p.adapter, p.err }
+func (p *testProvider) NewAdapter(config []byte) (webfs.FileAdapter, error) { return p.adapter, p.err }
 
 func createTestConfig() *config.Config {
 	return &config.Config{

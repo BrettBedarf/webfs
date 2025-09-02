@@ -22,25 +22,29 @@ const (
 	HTTPMethodDelete HTTPMethod = "DELETE"
 )
 
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 func RegisterHTTP(r *Registry) {
 	provider := &HTTPProvider{
-		// Can add shared resources here later (HTTP client, connection pool, etc.)
+		client: http.DefaultClient,
 	}
 	r.Register("http", provider)
 }
 
 // HTTPProvider implements webfs.AdapterProvider for HTTP sources
 type HTTPProvider struct {
-	// Future: shared HTTP client, connection pool, etc.
+	client HTTPClient
 }
 
-// Adapter creates a new HTTPAdapter from raw JSON configuration
-func (p *HTTPProvider) Adapter(raw []byte) (webfs.FileAdapter, error) {
+// NewAdapter creates a new HTTPAdapter from raw JSON configuration
+func (p *HTTPProvider) NewAdapter(raw []byte) (webfs.FileAdapter, error) {
 	var config HTTPSource
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return nil, err
 	}
-	return &HTTPAdapter{cfg: &config, log: util.GetLogger("http-adapter")}, nil
+	return &HTTPAdapter{cfg: &config, client: p.client, log: util.GetLogger("http-adapter")}, nil
 }
 
 // HTTPSource contains http-specific source request fields
@@ -59,8 +63,9 @@ type HTTPSource struct {
 // HTTPAdapter implements [webfs.FileAdapter] for HTTP sources
 type HTTPAdapter struct {
 	webfs.FileAdapter
-	cfg *HTTPSource
-	log util.Logger
+	cfg    *HTTPSource
+	client HTTPClient
+	log    util.Logger
 }
 
 func (h *HTTPAdapter) newRequest(ctx context.Context, method HTTPMethod) (*http.Request, error) {
@@ -83,7 +88,7 @@ func (h *HTTPAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := h.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +114,7 @@ func (h *HTTPAdapter) Read(ctx context.Context, offset int64, size int64, buf []
 
 	h.log.Debug().Str("range", rangeHeader).Str("url", h.cfg.URL).Msg("Making range request")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := h.client.Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -158,7 +163,7 @@ func (h *HTTPAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) 
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := h.client.Do(req)
 	if err != nil {
 		return nil, err
 	}

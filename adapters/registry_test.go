@@ -96,10 +96,10 @@ func TestNewAdapter_ValidConfig(t *testing.T) {
 	r.Register("test", mockProvider)
 
 	cfg := []byte(`{"type":"test"}`) // only need type field for tests
-	mockProvider.On("Adapter", cfg).Return(mockAdapter, nil)
+	mockProvider.On("NewAdapter", cfg).Return(mockAdapter, nil)
 	ret, err := r.NewAdapter(cfg)
 	require.NoError(t, err)
-	mockProvider.AssertCalled(t, "Adapter", cfg)
+	mockProvider.AssertCalled(t, "NewAdapter", cfg)
 	assert.Equal(t, mockAdapter, ret)
 }
 
@@ -135,7 +135,7 @@ func TestNewAdapter_ProviderError(t *testing.T) {
 	r.Register("test", mockProvider)
 
 	expErr := fmt.Errorf("test error")
-	mockProvider.On("Adapter", mock.Anything).Return(nil, expErr)
+	mockProvider.On("NewAdapter", mock.Anything).Return(nil, expErr)
 
 	_, err := r.NewAdapter([]byte(`{"type":"test"}`))
 	require.Error(t, err)
