@@ -64,15 +64,16 @@ func main() {
 		// we ignore error here if not already mounted
 		cmd.Run() // nolint:errcheck
 	}
+	registry := adapters.NewRegistry()
 	// Register all built-in adapters
-	adapters.RegisterBuiltins()
+	adapters.RegisterBuiltins(registry)
 
 	// Init the fs
 	cfg := config.NewConfig(&config.ConfigOverride{
 		LogLvl: &logLvl,
 	})
+	fs := server.New(cfg, registry)
 
-	fs := server.New(cfg)
 	// Load sources
 	if nodesDef != "" {
 		defData, err := os.ReadFile(nodesDef)
@@ -98,7 +99,7 @@ func main() {
 
 			switch nodeType {
 			case webfs.FileNodeType:
-				fileReq, err := requests.UnmarshalFileRequest(rawNode)
+				fileReq, err := requests.UnmarshalFileRequest(rawNode, registry)
 				if err != nil {
 					logger.Error().Err(err).Msg("Failed to unmarshal file request")
 					continue

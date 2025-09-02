@@ -9,45 +9,56 @@ import (
 	"github.com/brettbedarf/webfs/internal/util"
 )
 
-var (
+type Registry struct {
 	mu        sync.RWMutex
-	providers = map[string]webfs.AdapterProvider{}
-)
+	providers map[string]webfs.AdapterProvider
+	log       util.Logger
+}
+
+func NewRegistry() *Registry {
+	return &Registry{
+		providers: map[string]webfs.AdapterProvider{},
+		log:       util.GetLogger("Registry"),
+	}
+}
 
 // Register ties a JSON‐raw factory to a “type” key and should be called for each
 // adapter type during app init
-func Register(adapterType string, provider webfs.AdapterProvider) {
-	mu.Lock()
-	providers[adapterType] = provider
-	mu.Unlock()
+func (r *Registry) Register(adapterType string, provider webfs.AdapterProvider) {
+	r.mu.Lock()
+	if _, ok := r.providers[adapterType]; ok {
+		r.log.Warn().Str("type", adapterType).Msg("Adapter type already registered")
+		return
+	}
+	r.providers[adapterType] = provider
+	r.mu.Unlock()
 }
 
 // GetProvider returns the provider for the given adapter type
-func GetProvider(adapterType string) (webfs.AdapterProvider, error) {
-	mu.RLock()
-	provider, ok := providers[adapterType]
-	mu.RUnlock()
+func (r *Registry) GetProvider(adapterType string) (webfs.AdapterProvider, error) {
+	r.mu.RLock()
+	provider, ok := r.providers[adapterType]
+	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("no provider for %q", adapterType)
 	}
 	return provider, nil
 }
 
-// GetAdapter picks the right provider based on the "type" field and creates an adapter.
+// NewAdapter picks the right provider based on the "type" field and creates an adapter.
 // All expected source adapter types should be registered with [Register]
 // before calling this function.
-func GetAdapter(rawCfg []byte) (webfs.FileAdapter, error) {
-	logger := util.GetLogger("GetAdapter")
+func (r *Registry) NewAdapter(rawCfg []byte) (webfs.FileAdapter, error) {
 	var meta struct {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(rawCfg, &meta); err != nil {
-		logger.Debug().Err(err).Str("config", string(rawCfg)).Msg("Failed to get adapter type")
+		r.log.Error().Err(err).Str("config", string(rawCfg)).Msg("Failed to get adapter type")
 		return nil, err
 	}
-	provider, err := GetProvider(meta.Type)
+	provider, err := r.GetProvider(meta.Type)
 	if err != nil {
-		logger.Error().Err(err)
+		r.log.Error().Err(err)
 		return nil, err
 	}
 	return provider.Adapter(rawCfg)

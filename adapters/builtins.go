@@ -13,7 +13,7 @@ const (
 
 // RegisterBuiltins registers all built-in adapters by default
 // or only the specific ones if keys are provided
-func RegisterBuiltins(adapters ...BuiltInAdapterType) {
+func RegisterBuiltins(registry *Registry, adapters ...BuiltInAdapterType) {
 	if len(adapters) == 0 {
 		// Include all built-in adapters here when adding implementations
 		adapters = append(adapters, HTTPAdapterType)
@@ -22,7 +22,7 @@ func RegisterBuiltins(adapters ...BuiltInAdapterType) {
 	for _, key := range adapters {
 		switch key {
 		case HTTPAdapterType:
-			RegisterHTTP()
+			RegisterHTTP(registry)
 		}
 	}
 }
