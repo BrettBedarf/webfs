@@ -11,56 +11,13 @@ import (
 
 	"github.com/brettbedarf/webfs"
 	"github.com/brettbedarf/webfs/config"
+	"github.com/brettbedarf/webfs/internal/mocks"
 	"github.com/brettbedarf/webfs/internal/util"
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-// MockFileAdapter implements FileAdapter using testify/mock
-type MockFileAdapter struct {
-	mock.Mock
-}
-
-func (m *MockFileAdapter) Read(ctx context.Context, offset int64, size int64, buf []byte) (int, error) {
-	args := m.Called(ctx, offset, size, buf)
-	return args.Int(0), args.Error(1)
-}
-
-func (m *MockFileAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(io.ReadCloser), args.Error(1)
-}
-
-func (m *MockFileAdapter) Write(ctx context.Context, offset int64, p []byte) (int, error) {
-	args := m.Called(ctx, offset, p)
-	return args.Int(0), args.Error(1)
-}
-
-func (m *MockFileAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*webfs.FileMetadata), args.Error(1)
-}
-
-// MockProvider implements FileProvider using testify/mock
-type MockProvider struct {
-	mock.Mock
-}
-
-func (m *MockProvider) Adapter(config []byte) (webfs.FileAdapter, error) {
-	args := m.Called(config)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(webfs.FileAdapter), args.Error(1)
-}
 
 // fakeAdapter provides an in-memory FileAdapter implementation for stable
 // read/metadata tests.
@@ -138,7 +95,7 @@ func createFileWithFakeProvider(t *testing.T, fs *FileSystem, path string, data 
 }
 
 // createFileWithMockProvider creates a file node with a mock provider for testing provider interactions
-func createFileWithMockProvider(t *testing.T, fs *FileSystem, path string, mockProvider *MockProvider) *Node {
+func createFileWithMockProvider(t *testing.T, fs *FileSystem, path string, mockProvider *mocks.MockAdapterProvider) *Node {
 	req := &webfs.FileCreateRequest{
 		NodeRequest: webfs.NodeRequest{
 			Path:  path,
@@ -231,10 +188,10 @@ func TestFileSystem_GetChildCtx(t *testing.T) {
 
 	fs := NewFS(createTestConfig())
 
-	mockAdapter := &MockFileAdapter{}
+	mockAdapter := &mocks.MockFileAdapter{}
 	mockAdapter.On("GetMeta", mock.Anything).Return(&webfs.FileMetadata{Size: 1024}, nil).Maybe()
 
-	mockProvider := &MockProvider{}
+	mockProvider := &mocks.MockAdapterProvider{}
 	mockProvider.On("Adapter", mock.Anything).Return(mockAdapter, nil)
 
 	_ = createFileWithMockProvider(t, fs, "child.txt", mockProvider)
@@ -306,10 +263,10 @@ func TestFileSystem_AddFileNode(t *testing.T) {
 
 	t.Run("FileInRoot", func(t *testing.T) {
 		// RefreshMeta may call GetMeta in background - make it optional
-		mockAdapter := &MockFileAdapter{}
+		mockAdapter := &mocks.MockFileAdapter{}
 		mockAdapter.On("GetMeta", mock.Anything).Return(&webfs.FileMetadata{Size: 1024}, nil).Maybe()
 
-		mockProvider := &MockProvider{}
+		mockProvider := &mocks.MockAdapterProvider{}
 		mockProvider.On("Adapter", mock.Anything).Return(mockAdapter, nil)
 
 		_ = createFileWithMockProvider(t, fs, "test.txt", mockProvider)
@@ -324,10 +281,10 @@ func TestFileSystem_AddFileNode(t *testing.T) {
 
 	t.Run("FileInNestedPath", func(t *testing.T) {
 		// RefreshMeta may call GetMeta in background - make it optional
-		mockAdapter := &MockFileAdapter{}
+		mockAdapter := &mocks.MockFileAdapter{}
 		mockAdapter.On("GetMeta", mock.Anything).Return(&webfs.FileMetadata{Size: 2048}, nil).Maybe()
 
-		mockProvider := &MockProvider{}
+		mockProvider := &mocks.MockAdapterProvider{}
 		mockProvider.On("Adapter", mock.Anything).Return(mockAdapter, nil)
 
 		_ = createFileWithMockProvider(t, fs, "nested/path/file.txt", mockProvider)
@@ -348,10 +305,10 @@ func TestFileSystem_AddFileNode(t *testing.T) {
 
 	t.Run("DuplicateFile", func(t *testing.T) {
 		// RefreshMeta may call GetMeta in background - make it optional
-		mockAdapter := &MockFileAdapter{}
+		mockAdapter := &mocks.MockFileAdapter{}
 		mockAdapter.On("GetMeta", mock.Anything).Return(&webfs.FileMetadata{Size: 512}, nil).Maybe()
 
-		mockProvider := &MockProvider{}
+		mockProvider := &mocks.MockAdapterProvider{}
 		mockProvider.On("Adapter", mock.Anything).Return(mockAdapter, nil)
 
 		// Create first time

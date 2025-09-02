@@ -10,103 +10,10 @@ import (
 	"time"
 
 	"github.com/brettbedarf/webfs"
+	"github.com/brettbedarf/webfs/internal/mocks"
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/stretchr/testify/mock"
 )
-
-// Mock adapter for testing using testify
-type mockAdapter struct {
-	mock.Mock
-}
-
-func (m *mockAdapter) Read(ctx context.Context, offset int64, size int64, buf []byte) (int, error) {
-	args := m.Called(ctx, offset, size, buf)
-	// Handle function return types from testify
-	if fn, ok := args.Get(0).(func(context.Context, int64, int64, []byte) int); ok {
-		return fn(ctx, offset, size, buf), args.Error(1)
-	}
-	if args.Get(0) == nil {
-		return 0, args.Error(1)
-	}
-	return args.Get(0).(int), args.Error(1)
-}
-
-func (m *mockAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(io.ReadCloser), args.Error(1)
-}
-
-func (m *mockAdapter) Write(ctx context.Context, offset int64, p []byte) (int, error) {
-	args := m.Called(ctx, offset, p)
-	if args.Get(0) == nil {
-		return 0, args.Error(1)
-	}
-	return args.Get(0).(int), args.Error(1)
-}
-
-func (m *mockAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*webfs.FileMetadata), args.Error(1)
-}
-
-// Test helper to create a test inode
-func createTestInode(adapters []webfs.FileAdapter) *Inode {
-	attr := &fuse.Attr{
-		Ino:  1,
-		Size: 1024,
-		Mode: 0o644,
-	}
-	return NewInode(attr, adapters)
-}
-
-// Helper to create mock adapter that returns data successfully
-func createSuccessfulMockAdapter(data []byte) *mockAdapter {
-	mockAdapter := &mockAdapter{}
-	// Use a more complex mock that calculates the correct return value
-	mockAdapter.On("Read", mock.Anything, mock.AnythingOfType("int64"), mock.AnythingOfType("int64"), mock.AnythingOfType("[]uint8")).Return(
-		func(ctx context.Context, offset int64, size int64, buf []byte) int {
-			if offset >= int64(len(data)) {
-				return 0
-			}
-			end := min(offset+size, int64(len(data)))
-			bytesToCopy := end - offset
-			copy(buf, data[offset:end])
-			return int(bytesToCopy)
-		},
-		nil,
-	).Maybe()
-
-	mockAdapter.On("GetMeta", mock.Anything).Return(
-		&webfs.FileMetadata{
-			Size:         uint64(len(data)),
-			LastModified: func() *time.Time { t := time.Now(); return &t }(),
-		},
-		nil,
-	).Maybe()
-	mockAdapter.On("Open", mock.Anything).Return(
-		io.NopCloser(bytes.NewReader(data)),
-		nil,
-	).Maybe()
-	return mockAdapter
-}
-
-// Helper to create mock adapter that fails
-func createFailingMockAdapter() *mockAdapter {
-	mockAdapter := &mockAdapter{}
-	mockAdapter.On("Read", mock.Anything, mock.AnythingOfType("int64"), mock.AnythingOfType("int64"), mock.AnythingOfType("[]uint8")).Return(
-		0, fmt.Errorf("mock adapter failure")).Maybe()
-	mockAdapter.On("GetMeta", mock.Anything).Return(
-		(*webfs.FileMetadata)(nil), fmt.Errorf("mock adapter failure")).Maybe()
-	mockAdapter.On("Open", mock.Anything).Return(
-		(io.ReadCloser)(nil), fmt.Errorf("mock adapter failure")).Maybe()
-	return mockAdapter
-}
 
 func TestInode_BasicRead(t *testing.T) {
 	testData := []byte("hello world")
@@ -309,7 +216,7 @@ func TestInode_NoAdapters(t *testing.T) {
 
 func TestInode_ConcurrentReads(t *testing.T) {
 	testData := []byte("concurrent read test data")
-	adapter := &mockAdapter{}
+	adapter := &mocks.MockFileAdapter{}
 
 	// Set up mock with delay to simulate real network latency
 	adapter.On("Read", mock.Anything, mock.AnythingOfType("int64"), mock.AnythingOfType("int64"), mock.AnythingOfType("[]uint8")).Return(
@@ -457,4 +364,57 @@ func TestInode_ReadPartialAtEnd(t *testing.T) {
 	if string(data) != expected {
 		t.Errorf("Partial read got %q, expected %q", data, expected)
 	}
+}
+
+// Helper to create a test inode
+func createTestInode(adapters []webfs.FileAdapter) *Inode {
+	attr := &fuse.Attr{
+		Ino:  1,
+		Size: 1024,
+		Mode: 0o644,
+	}
+	return NewInode(attr, adapters)
+}
+
+// Helper to create mock adapter that returns data successfully
+func createSuccessfulMockAdapter(data []byte) *mocks.MockFileAdapter {
+	mockAdapter := &mocks.MockFileAdapter{}
+	// Use a more complex mock that calculates the correct return value
+	mockAdapter.On("Read", mock.Anything, mock.AnythingOfType("int64"), mock.AnythingOfType("int64"), mock.AnythingOfType("[]uint8")).Return(
+		func(ctx context.Context, offset int64, size int64, buf []byte) int {
+			if offset >= int64(len(data)) {
+				return 0
+			}
+			end := min(offset+size, int64(len(data)))
+			bytesToCopy := end - offset
+			copy(buf, data[offset:end])
+			return int(bytesToCopy)
+		},
+		nil,
+	).Maybe()
+
+	mockAdapter.On("GetMeta", mock.Anything).Return(
+		&webfs.FileMetadata{
+			Size:         uint64(len(data)),
+			LastModified: func() *time.Time { t := time.Now(); return &t }(),
+		},
+		nil,
+	).Maybe()
+	mockAdapter.On("Open", mock.Anything).Return(
+		io.NopCloser(bytes.NewReader(data)),
+		nil,
+	).Maybe()
+	return mockAdapter
+}
+
+// Helper to create mock adapter that fails
+func createFailingMockAdapter() *mocks.MockFileAdapter {
+	mockAdapter := &mocks.MockFileAdapter{}
+	mockAdapter.On("Read", mock.Anything, mock.AnythingOfType("int64"), mock.AnythingOfType("int64"), mock.AnythingOfType("[]uint8")).Return(
+		0, fmt.Errorf("mock adapter failure")).Maybe()
+	mockAdapter.On("GetMeta", mock.Anything).Return(
+		(*webfs.FileMetadata)(nil), fmt.Errorf("mock adapter failure")).Maybe()
+	mockAdapter.On("Open", mock.Anything).Return(
+		(io.ReadCloser)(nil), fmt.Errorf("mock adapter failure")).Maybe()
+	return mockAdapter
 }
