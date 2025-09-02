@@ -63,5 +63,5 @@ func (r *Registry) NewAdapter(rawCfg []byte) (webfs.FileAdapter, error) {
 		r.log.Error().Err(err)
 		return nil, err
 	}
-	return provider.Adapter(rawCfg)
+	return provider.NewAdapter(rawCfg)
 }
