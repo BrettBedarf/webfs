@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/brettbedarf/webfs"
 	"github.com/brettbedarf/webfs/internal/util"
@@ -26,6 +28,19 @@ type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// HTTPSource contains http-specific source request fields
+type HTTPSource struct {
+	URL     string            `json:"url"`
+	Method  *HTTPMethod       `json:"method,omitempty"` // Default is GET
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// TODO: Timeout and MaxRedirects are client-specific so prob would want to
+	// implement context-based logic to keep reusing common client with custom request
+	//
+	// Timeout      *int              `json:"timeout,omitempty"` // Timeout in seconds
+	// MaxRedirects *int              `json:"maxRedirects,omitempty"`
+}
+
 func RegisterHTTP(r *Registry) {
 	provider := &HTTPProvider{
 		client: http.DefaultClient,
@@ -40,24 +55,39 @@ type HTTPProvider struct {
 
 // NewAdapter creates a new HTTPAdapter from raw JSON configuration
 func (p *HTTPProvider) NewAdapter(raw []byte) (webfs.FileAdapter, error) {
-	var config HTTPSource
-	if err := json.Unmarshal(raw, &config); err != nil {
+	log := util.GetLogger("http-adapter")
+	var cfg HTTPSource
+	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, err
 	}
-	return &HTTPAdapter{cfg: &config, client: p.client, log: util.GetLogger("http-adapter")}, nil
-}
+	// Config validation
+	// TODO: Check escaping (not sure if client does this)
+	rawURL := strings.TrimSpace(cfg.URL)
+	if rawURL == "" {
+		return nil, fmt.Errorf("http adapter: URL is required")
+	}
 
-// HTTPSource contains http-specific source request fields
-type HTTPSource struct {
-	URL     string            `json:"url"`
-	Method  *HTTPMethod       `json:"method,omitempty"` // Default is GET
-	Headers map[string]string `json:"headers,omitempty"`
+	u, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("http adapter: invalid URL: %w", err)
+	}
+	if u.Scheme == "" {
+		return nil, fmt.Errorf("http adapter: URL is missing scheme (must be http:// or https://): %s", rawURL)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("http adapter: unsupported URL scheme: %s", u.Scheme)
+	}
+	if u.User != nil {
+		return nil, fmt.Errorf("http adapter: username not supported: %s", rawURL)
+	}
+	// Only warning if domain is not fully qualified
+	if !strings.Contains(u.Host, ".") && u.Host != "localhost" {
+		log.Warn().Str("url", rawURL).Msg("URL is missing domain and may fail to resolve")
+	}
 
-	// TODO: Timeout and MaxRedirects are client-specific so prob would want to
-	// implement context-based logic to keep reusing common client with custom request
-	//
-	// Timeout      *int              `json:"timeout,omitempty"` // Timeout in seconds
-	// MaxRedirects *int              `json:"maxRedirects,omitempty"`
+	cfg.URL = u.String()
+
+	return &HTTPAdapter{cfg: &cfg, client: p.client, log: util.GetLogger("http-adapter")}, nil
 }
 
 // HTTPAdapter implements [webfs.FileAdapter] for HTTP sources
