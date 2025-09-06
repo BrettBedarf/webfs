@@ -1,7 +1,12 @@
 package adapters
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"testing"
 
@@ -63,22 +68,86 @@ func TestHTTPProvider_NewAdapter(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("HTTP Method", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			method  HTTPMethod
+			wantErr bool
+		}{
+			{
+				"defaults GET",
+				(HTTPMethod)(""),
+				false,
+			},
+			{
+				"valid method",
+				HTTPMethodPost,
+				false,
+			},
+			{
+				"invalid method",
+				(HTTPMethod)("INVALID"),
+				true,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				cfg := &HTTPSource{URL: "https://test.com/test", Method: tt.method}
+				raw, _ := json.Marshal(cfg)
+				adapter, err := provider.NewAdapter(raw)
+
+				if tt.wantErr {
+					assert.Error(t, err)
+					assert.Nil(t, adapter)
+				} else {
+					require.NoError(t, err)
+					require.NotNil(t, adapter)
+					assert.IsType(t, &HTTPAdapter{}, adapter)
+				}
+			})
+		}
+	})
 }
 
 func TestHTTPAdapter_Open(t *testing.T) {
 	t.Run("successful request", func(t *testing.T) {
-		// TODO: Implement test with mock HTTP server
-		t.Skip("Not implemented yet")
+		mockClient := newMockHTTPClient(t)
+		// mockClient.Test(t)
+		adapter, createErr := NewHTTPAdapter(&HTTPSource{
+			URL:    "http://test.com",
+			Method: HTTPMethodGet,
+			Headers: map[string]string{
+				"TestHeader": "test-value",
+			},
+		}, mockClient)
+		require.NoError(t, createErr)
+
+		resp := createMockResponse(200, []byte("test body"), nil)
+		mockClient.On("Do", mock.MatchedBy(func(req *http.Request) bool {
+			return req.Method == http.MethodGet &&
+				req.URL.String() == "http://test.coms" &&
+				req.Header.Get("TestHeader") == "test-value"
+		})).Return(resp, nil).Once()
+
+		body, err := adapter.Open(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, resp.Body, body)
 	})
 
-	t.Run("network error", func(t *testing.T) {
-		// TODO: Implement test
-		t.Skip("Not implemented yet")
-	})
+	t.Run("returns error on http error", func(t *testing.T) {
+		t.Skip()
+		mockClient := newMockHTTPClient(t)
+		adapter, createErr := NewHTTPAdapter(&HTTPSource{
+			URL:    "http://test.com",
+			Method: HTTPMethodGet,
+		}, mockClient)
+		require.NoError(t, createErr)
 
-	t.Run("with custom headers", func(t *testing.T) {
-		// TODO: Implement test
-		t.Skip("Not implemented yet")
+		mockClient.On("Do", mock.Anything).Return(nil, errors.New("network error")).Once()
+		_, err := adapter.Open(context.Background())
+		require.Error(t, err)
 	})
 }
 
@@ -105,13 +174,6 @@ func TestHTTPAdapter_Read(t *testing.T) {
 
 	t.Run("offset skip logic", func(t *testing.T) {
 		// TODO: Test offset handling when server doesn't support ranges
-		t.Skip("Not implemented yet")
-	})
-}
-
-func TestHTTPAdapter_Write(t *testing.T) {
-	t.Run("returns read-only error", func(t *testing.T) {
-		// TODO: Implement test
 		t.Skip("Not implemented yet")
 	})
 }
@@ -158,7 +220,7 @@ func createCfg(url string) []byte {
 	return data
 }
 
-func createCfgWithOpts(url string, method *HTTPMethod, headers map[string]string) []byte {
+func createCfgWithOpts(url string, method HTTPMethod, headers map[string]string) []byte {
 	config := HTTPSource{
 		URL:     url,
 		Method:  method,
@@ -166,4 +228,28 @@ func createCfgWithOpts(url string, method *HTTPMethod, headers map[string]string
 	}
 	data, _ := json.Marshal(config)
 	return data
+}
+
+func newMockHTTPClient(t *testing.T) *MockHTTPClient {
+	m := &MockHTTPClient{}
+	m.Test(t) // Associate with test to prevent panics
+	return m
+}
+
+func createMockResponse(statusCode int, body []byte, headers map[string]string) *http.Response {
+	h := make(http.Header)
+	for k, v := range headers {
+		h.Set(k, v)
+	}
+	resp := &http.Response{
+		StatusCode: statusCode,
+		Status:     fmt.Sprintf("%d %s", statusCode, http.StatusText(statusCode)),
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Body:       io.NopCloser(bytes.NewReader(body)),
+		Header:     h,
+	}
+
+	return resp
 }

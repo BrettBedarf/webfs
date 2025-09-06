@@ -13,7 +13,7 @@ import (
 	"github.com/brettbedarf/webfs/internal/util"
 )
 
-type HTTPMethod = string
+type HTTPMethod string
 
 const (
 	HTTPMethodGet    HTTPMethod = "GET"
@@ -24,6 +24,16 @@ const (
 	HTTPMethodDelete HTTPMethod = "DELETE"
 )
 
+// validHTTPMethods is a set of valid HTTP methods for O(1) lookup
+var validHTTPMethods = map[HTTPMethod]struct{}{
+	HTTPMethodGet:    {},
+	HTTPMethodHead:   {},
+	HTTPMethodPost:   {},
+	HTTPMethodPut:    {},
+	HTTPMethodPatch:  {},
+	HTTPMethodDelete: {},
+}
+
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -31,7 +41,7 @@ type HTTPClient interface {
 // HTTPSource contains http-specific source request fields
 type HTTPSource struct {
 	URL     string            `json:"url"`
-	Method  *HTTPMethod       `json:"method,omitempty"` // Default is GET
+	Method  HTTPMethod        `json:"method,omitempty"` // Default is GET
 	Headers map[string]string `json:"headers,omitempty"`
 
 	// TODO: Timeout and MaxRedirects are client-specific so prob would want to
@@ -60,7 +70,15 @@ func (p *HTTPProvider) NewAdapter(raw []byte) (webfs.FileAdapter, error) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, err
 	}
+	if cfg.Method == "" {
+		cfg.Method = HTTPMethodGet
+	}
+
 	// Config validation
+	if _, ok := validHTTPMethods[cfg.Method]; !ok {
+		return nil, fmt.Errorf("http adapter: invalid HTTP method: %s", cfg.Method)
+	}
+
 	// TODO: Check escaping (not sure if client does this)
 	rawURL := strings.TrimSpace(cfg.URL)
 	if rawURL == "" {
@@ -87,37 +105,34 @@ func (p *HTTPProvider) NewAdapter(raw []byte) (webfs.FileAdapter, error) {
 
 	cfg.URL = u.String()
 
-	return &HTTPAdapter{cfg: &cfg, client: p.client, log: util.GetLogger("http-adapter")}, nil
+	return NewHTTPAdapter(&cfg, p.client)
 }
 
 // HTTPAdapter implements [webfs.FileAdapter] for HTTP sources
 type HTTPAdapter struct {
-	webfs.FileAdapter
-	cfg    *HTTPSource
-	client HTTPClient
-	log    util.Logger
+	cfg     *HTTPSource
+	client  HTTPClient
+	baseReq *http.Request
+	log     util.Logger
 }
 
-func (h *HTTPAdapter) newRequest(ctx context.Context, method HTTPMethod) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, method, h.cfg.URL, nil)
-	if err != nil {
-		return nil, err
+func NewHTTPAdapter(cfg *HTTPSource, client HTTPClient) (*HTTPAdapter, error) {
+	adp := &HTTPAdapter{cfg: cfg, client: client, log: util.GetLogger("http-adapter")}
+	if req, err := http.NewRequest(string(cfg.Method), cfg.URL, nil); err != nil {
+		return nil, fmt.Errorf("http adapter: invalid request for %s: %w", cfg.URL, err)
+	} else {
+		// Add custom headers
+		for k, v := range cfg.Headers {
+			req.Header.Set(k, v)
+		}
+		adp.baseReq = req
 	}
 
-	// Add custom headers
-	for k, v := range h.cfg.Headers {
-		req.Header.Set(k, v)
-	}
-
-	return req, nil
+	return adp, nil
 }
 
 func (h *HTTPAdapter) Open(ctx context.Context) (io.ReadCloser, error) {
-	req, err := h.newRequest(ctx, h.getMethod())
-	if err != nil {
-		return nil, err
-	}
-
+	req := h.baseReq.Clone(ctx)
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -133,16 +148,10 @@ func (h *HTTPAdapter) Read(ctx context.Context, offset int64, size int64, buf []
 	}
 
 	// Create request with Range header for partial content
-	req, err := h.newRequest(ctx, h.getMethod())
-	if err != nil {
-		return 0, err
-	}
-
+	req := h.baseReq.Clone(ctx)
 	// Add Range header: "bytes=start-end" (end is inclusive)
 	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, offset+size-1)
 	req.Header.Set("Range", rangeHeader)
-
-	h.log.Debug().Str("range", rangeHeader).Str("url", h.cfg.URL).Msg("Making range request")
 
 	resp, err := h.client.Do(req)
 	if err != nil {
@@ -188,10 +197,7 @@ func (h *HTTPAdapter) Write(ctx context.Context, offset int64, buf []byte) (int,
 }
 
 func (h *HTTPAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) {
-	req, err := h.newRequest(ctx, "HEAD")
-	if err != nil {
-		return nil, err
-	}
+	req := h.baseReq.Clone(ctx)
 
 	resp, err := h.client.Do(req)
 	if err != nil {
@@ -222,13 +228,6 @@ func (h *HTTPAdapter) GetMeta(ctx context.Context) (*webfs.FileMetadata, error) 
 	return meta, nil
 }
 
-func (h *HTTPAdapter) getMethod() HTTPMethod {
-	if h.cfg.Method != nil {
-		return *h.cfg.Method
-	}
-	return HTTPMethodGet
-}
-
 func (h *HTTPAdapter) closeResp(resp *http.Response) {
 	if resp == nil {
 		return
@@ -238,3 +237,6 @@ func (h *HTTPAdapter) closeResp(resp *http.Response) {
 			Msg("Failed to close response body")
 	}
 }
+
+// Compile-time interface check
+var _ webfs.FileAdapter = (*HTTPAdapter)(nil)
