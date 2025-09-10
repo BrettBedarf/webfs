@@ -52,12 +52,12 @@ func TestHTTPProvider_NewAdapter(t *testing.T) {
 			{"http://user@test.com/path", true, "URL with user info"},
 		}
 
-		for _, tt := range tests {
-			t.Run(tt.desc, func(t *testing.T) {
-				config := createCfg(tt.url)
+		for _, tc := range tests {
+			t.Run(tc.desc, func(t *testing.T) {
+				config := createCfg(tc.url)
 				adapter, err := provider.NewAdapter(config)
 
-				if tt.wantErr {
+				if tc.wantErr {
 					assert.Error(t, err)
 					assert.Nil(t, adapter)
 				} else {
@@ -92,13 +92,13 @@ func TestHTTPProvider_NewAdapter(t *testing.T) {
 			},
 		}
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				cfg := &HTTPSource{URL: "https://test.com/test", Method: tt.method}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := &HTTPSource{URL: "https://test.com/test", Method: tc.method}
 				raw, _ := json.Marshal(cfg)
 				adapter, err := provider.NewAdapter(raw)
 
-				if tt.wantErr {
+				if tc.wantErr {
 					assert.Error(t, err)
 					assert.Nil(t, adapter)
 				} else {
