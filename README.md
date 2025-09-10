@@ -4,18 +4,18 @@ A FUSE (Filesystem in User SpacE) implementation that serves web resources (Publ
 
 Currently it supports HTTP(S) URL sources and a subset of system file operations (list + attributes, open, read ). See `examples/pub_sources.json` for how to define simple public URLs as files.
 
-**NOTE:** WFS is in early, active development in my spare time, with a stable API still settling. If just curious and tinkering go for it expecting breaking changes, and _only_ ever add reputable file sources you would physically download to your machine anyways. It should not be even considered to be uttered outloud in the same context of anything resembling a production or secured environment 😄
+**NOTE:** WFS is in early, active development in my spare time, with a stable API still settling. If just curious and tinkering go for it expecting breaking changes, and _only_ ever add reputable file sources you would physically download and open anyways.
 
 ## Requirements
 
-Linux, Mac(untested), or FreeBSD(untested) operating system with appropriate os-specific FUSE binary installed and available on $PATH:
+Linux, Mac, or FreeBSD(untested) operating system with appropriate os-specific FUSE binary installed and available on $PATH:
 
 ### Linux
 
 fusermount3 is available from all known major distro package managers
 ex. [Arch Linux](https://man.archlinux.org/man/fusermount3.1.en) (btw): `sudo pacman -S fuse3`
 
-### MacOS (untested)
+### MacOS
 
 [macfuse](https://github.com/macfuse/macfuse) (formerly osxfuse) is recommended to be installed from their official [releases](https://github.com/macfuse/macfuse/releases/latest)
 
@@ -36,7 +36,7 @@ ls -l <mountpoint>
 
 See `go run ./cmd/main.go --help` for full cli args.
 
-If something goes terribly wrong e.g. process killed without a chance to gracefully exit, try closing any apps that might be hanging on to open file handles and `fusermount -u <mountpoint>` to unmount the filesystem.
+If something goes terribly wrong e.g. process killed without a chance to gracefully exit, try closing any processes that might be hanging on to open file handles (file explorer, terminal cwd in mount tree, etc) and `fusermount -u <mountpoint>` to unmount the filesystem.
 
 ## Build
 
@@ -46,22 +46,15 @@ go build -o bin/wfs ./cmd/wfs/main.go
 
 ## Status
 
-### DONE
-
-- [x] Python POC
-- [x] [Migrate & Iterate Python POC to Go MVP](https://github.com/BrettBedarf/webfs/pull/1)
-  - Supports minimal list, open, attributes sys calls for public http/https urls
-- [x] e2e testing pattern & basic MVP e2e tests
-
-### IN PROGRESS
-
-- [ ] Docs
-- [ ] Unit tests for initial read-only fs
+Currently
 
 ### TODO
-
 - [ ] YouTube adapter & demo
-- [ ] Test MacOS
+- [ ] JSON5 support
+- [ ] env var import, template & parse 
+- [ ] Refactor in-mem cache control to `Filesystem`
+- [ ] Node meta write ops (`mv`, `cp`, `ln`, etc)
+- [ ] Persistent Node defs
 - [ ] Test FreeBSD
 - [ ] "Magic File" add i.e. `echo "https://example.com/file.txt" > /webfs/file.txt.wfs`
 - [ ] Hooks integration point (stdio "on-open", "on-update", "on-fail", "on-fetch", etc)
@@ -77,3 +70,11 @@ go build -o bin/wfs ./cmd/wfs/main.go
   - [ ] Azure Blob Storage
   - [ ] IPFS
 - [ ] Lua? Adapters extension point
+
+#### DONE
+- [x] Test MacOS
+- [x] Unit tests for initial read-only fs
+- [x] e2e testing pattern & basic MVP e2e tests
+- [x] [Migrate & Iterate Python POC to Go MVP](https://github.com/BrettBedarf/webfs/pull/1)
+  - Supports minimal list, open, attributes sys calls for public http/https urls
+- [x] Python POC
